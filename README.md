@@ -61,7 +61,33 @@ cdk deploy
 ```
 Adjust stack parameters so that the Lambda points to the correct model artifact and endpoint configuration.
 
-## Suggested Next Steps
-- Automate dataset retrieval (e.g., Kaggle API) and document access controls.
-- Check the model into Amazon S3 and update the CDK stack to pull from that location.
-- Add end-to-end tests that exercise the React UI against a mocked backend.
+## Testing 
+```
+When you are done testing, please go to /cdk and run cdk destroy --all and enter 'y' to save credits
+
+example JSON to use:
+
+{
+  "trans_date_trans_time": "2020-06-21 22:37:27",
+  "cc_num": "6564459919350820",
+  "merchant": "fraud_Nienow PLC",
+  "category": "entertainment",
+  "amt": 620.33,
+  "first": "Douglas",
+  "last": "Willis",
+  "gender": "M",
+  "street": "619 Jeremy Garden Apt. 681",
+  "city": "Benton",
+  "state": "WI",
+  "zip": 53803,
+  "lat": 42.5545,
+  "long": -90.3508,
+  "city_pop": 1306,
+  "job": "Public relations officer",
+  "dob": "1958-09-10",
+  "trans_num": "47a9987ae81d99f7832a54b29a77bf4b",
+  "unix_time": 1371854247,
+  "merch_lat": 42.771834000000005,
+  "merch_long": -90.158365
+}
+```
