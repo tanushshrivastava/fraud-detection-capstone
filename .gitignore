@@ -1,0 +1,7 @@
+cdk/.gradle
+backend/.gradle
+backend/cdk.out
+frontend/node_modules
+__pycache__ 
+.vscode
+.DS_Store

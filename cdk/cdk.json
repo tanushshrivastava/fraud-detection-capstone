@@ -1,0 +1,3 @@
+{
+  "app": "gradle -q --no-daemon run"
+}

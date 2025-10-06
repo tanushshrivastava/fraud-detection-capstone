@@ -1,0 +1,64 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.fraud'
+version = '1.0.0'
+description = 'Fraud Detection Lambda (Java)'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation platform("software.amazon.awssdk:bom:2.24.10")
+
+    implementation "software.amazon.awssdk:sagemakerruntime"
+    implementation "software.amazon.awssdk:s3"
+
+    implementation "com.amazonaws:aws-lambda-java-core:1.2.3"
+    implementation "com.amazonaws:aws-lambda-java-events:3.11.3"
+
+    implementation "org.slf4j:slf4j-simple:2.0.12"
+}
+
+application {
+    mainClass = 'com.fraud.lambda.FraudLambdaHandler'
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+tasks.register('buildLambda', Jar) {
+    archiveBaseName = 'fraud-backend'
+    archiveExtension = 'jar'
+    destinationDirectory = layout.buildDirectory.dir('libs')
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes 'Main-Class': 'com.fraud.lambda.FraudLambdaHandler'
+    }
+    from sourceSets.main.output
+    dependsOn configurations.runtimeClasspath
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+}
+
+tasks.named('build') {
+    dependsOn 'buildLambda'
+}
+
+tasks.named('jar') {
+    enabled = false
+}
+
+tasks.named('buildLambda') {
+    archiveFileName = 'fraud-backend.jar'
+}

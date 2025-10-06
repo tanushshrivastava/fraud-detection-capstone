@@ -1,0 +1,25 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.fraud'
+version = '1.0.0'
+description = 'Fraud Detection CDK App'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation "software.amazon.awscdk:aws-cdk-lib:2.152.0"
+    implementation "software.constructs:constructs:10.3.0"
+}
+
+application {
+    mainClass = 'com.fraud.cdk.AppMain'
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
