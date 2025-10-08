@@ -8,8 +8,10 @@ public class AppMain {
     public static void main(String[] args) {
         App app = new App();
 
-        String account = System.getenv("CDK_DEFAULT_ACCOUNT");
-        String region = System.getenv("CDK_DEFAULT_REGION");
+        String account = EnvConfig.get("AWS_ACCOUNT_ID")
+            .orElse(System.getenv("CDK_DEFAULT_ACCOUNT"));
+        String region = EnvConfig.get("AWS_REGION")
+            .orElse(System.getenv("CDK_DEFAULT_REGION"));
 
         StackProps.Builder propsBuilder = StackProps.builder();
         if (account != null && region != null) {
@@ -20,9 +22,59 @@ public class AppMain {
         }
         StackProps stackProps = propsBuilder.build();
 
-        new BackendStack(app, "FraudBackendStack", stackProps);
-        new FraudFrontendStack(app, "FraudFrontendStack", stackProps);
+        String suffix = EnvConfig.getStackSuffix().orElse(null);
+
+        BackendEnvironment backendEnv = new BackendEnvironment(
+            appendSuffix("FraudBackendStack", suffix),
+            suffix,
+            account,
+            region
+        );
+
+        FraudEndpointStack endpointStack = new FraudEndpointStack(
+            app,
+            appendSuffix("FraudEndpointStack", suffix),
+            stackProps,
+            backendEnv
+        );
+
+        FraudDataStack dataStack = new FraudDataStack(
+            app,
+            appendSuffix("FraudDataStack", suffix),
+            stackProps,
+            backendEnv
+        );
+
+        FraudLambdaStack lambdaStack = new FraudLambdaStack(
+            app,
+            appendSuffix("FraudLambdaStack", suffix),
+            stackProps,
+            new FraudLambdaStack.FraudLambdaStackProps(
+                endpointStack.getEndpointName(),
+                dataStack.getTransactionsTable()
+            )
+        );
+
+        FraudApiStack apiStack = new FraudApiStack(
+            app,
+            appendSuffix("FraudApiStack", suffix),
+            stackProps,
+            backendEnv,
+            lambdaStack.getFraudLambda()
+        );
+
+        lambdaStack.addDependency(endpointStack);
+        lambdaStack.addDependency(dataStack);
+        apiStack.addDependency(lambdaStack);
+        new FraudFrontendStack(app, appendSuffix("FraudFrontendStack", suffix), stackProps);
 
         app.synth();
+    }
+
+    private static String appendSuffix(String baseName, String suffix) {
+        if (suffix == null) {
+            return baseName;
+        }
+        return baseName + "-" + suffix;
     }
 }

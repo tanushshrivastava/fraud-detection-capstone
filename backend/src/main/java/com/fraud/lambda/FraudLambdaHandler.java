@@ -17,7 +17,10 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
 
     @Override
     public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent event, Context context) {
-        String endpointName = "fraud-detector-endpoint"; // Change to your endpoint
+        String endpointName = System.getenv("SAGEMAKER_ENDPOINT_NAME");
+        if (endpointName == null || endpointName.isBlank()) {
+            endpointName = "fraud-detector-endpoint";
+        }
         APIGatewayProxyResponseEvent responseEvent = new APIGatewayProxyResponseEvent();
         try (SageMakerRuntimeClient runtime = SageMakerRuntimeClient.create()) {
             String payload = event != null ? event.getBody() : null;

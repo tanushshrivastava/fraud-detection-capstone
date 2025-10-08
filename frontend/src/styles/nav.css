@@ -1,0 +1,46 @@
+.nav-links {
+  display: flex;
+  gap: 0.85rem;
+}
+
+.nav-button {
+  border: none;
+  background: rgba(15, 23, 42, 0.06);
+  color: #0f172a;
+  padding: 0.55rem 1.25rem;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+}
+
+.nav-button:hover {
+  background: rgba(29, 78, 216, 0.18);
+  color: #1d4ed8;
+}
+
+.nav-button.active {
+  background: #dc2626;
+  color: #f8fafc;
+  box-shadow: 0 8px 24px -14px rgba(220, 38, 38, 0.8);
+}
+
+@media (max-width: 900px) {
+  .nav-links {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 640px) {
+  .nav-links {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .nav-button {
+    flex: 1 1 calc(33% - 0.5rem);
+    text-align: center;
+  }
+}
