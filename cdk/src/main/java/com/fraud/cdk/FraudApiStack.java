@@ -23,7 +23,12 @@ public class FraudApiStack extends Stack {
         super(scope, id, props);
         Objects.requireNonNull(handler, "handler is required");
 
+        String restApiName = env.stackSuffix().isBlank()
+            ? "FraudDetectionApi"
+            : String.format("FraudDetectionApi-%s", env.stackSuffix());
+
         this.api = LambdaRestApi.Builder.create(this, "FraudApi")
+            .restApiName(restApiName)
             .handler(handler)
             .proxy(true)
             .defaultCorsPreflightOptions(CorsOptions.builder()

@@ -10,3 +10,4 @@ model/artifacts/FraudBackendStack-Tanush/model.joblib
 backend/build/tmp/buildLambda/MANIFEST.MF
 backend/build/scripts/backend.bat
 cdk/build/tmp/compileJava/previous-compilation-data.bin
+backend/build/tmp/compileJava/previous-compilation-data.bin
