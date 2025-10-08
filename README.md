@@ -10,7 +10,7 @@ Fraud Detection Capstone is an end-to-end project that trains a machine learning
 - `fraudTrain.csv` – **Not committed**. Download this dataset separately (see below) before training.
 
 ## Prerequisites
-- Python 3.10+ with `pip` and the ability to create virtual environments.
+- Python 3.9 with `pip` and the ability to create virtual environments.
 - Node.js 18+ and `npm` (or `yarn`) for the React app.
 - Java 17 and Gradle 8+ for building the Lambda package.
 - AWS CLI v2 and AWS CDK v2.
@@ -40,7 +40,6 @@ After training, stack-aware assets land in `model/artifacts/<stack-name>/` (`mod
 cd backend
 gradle buildLambda                   # Produces build/libs/fraud-backend.jar
 ```
-Deploy the JAR to AWS Lambda or reference it from your CDK stack. The handler class is `com.fraud.lambda.FraudLambdaHandler`, and it expects requests that mirror the features engineered in `model/preprocess`.
 
 ## Frontend (`frontend/`)
 ```bash
@@ -162,7 +161,11 @@ aws s3 rm s3://trained-data-${AWS_ACCOUNT_ID}-${AWS_REGION}/ \
 
 ## Testing 
 ```
-When you are done testing, please go to /cdk and run cdk destroy --all and enter 'y' to save credits
+When you are done testing, please run aws sagemaker delete-endpoint --endpoint-name fraudbackendstack-{suffix}-endpoint to delete the endpoint
+
+you can restart it by running aws sagemaker create-endpoint \
+  --endpoint-name fraudbackendstack-{suffix}-endpoint \
+  --endpoint-config-name fraudbackendstack-{suffix}-endpoint-config
 
 example JSON to use:
 
@@ -190,3 +193,74 @@ example JSON to use:
   "merch_long": -90.158365
 }
 ```
+
+
+### 9. Deploy to AWS From Git
+
+Create in root ".github/workflow/deploy.yml"
+```
+name: Deploy CDK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Install AWS CDK CLI
+        run: npm install -g aws-cdk@2
+
+      - name: Build Lambda package
+        run: |
+          cd backend
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+            ./gradlew buildLambda
+          else
+            gradle buildLambda
+          fi
+
+      - name: Build frontend
+        env:
+          REACT_APP_API_ID: ${{ secrets.REACT_APP_API_ID }}
+          REACT_APP_API_REGION: ${{ secrets.REACT_APP_API_REGION }}
+          REACT_APP_API_STAGE: ${{ secrets.REACT_APP_API_STAGE }}
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Deploy CDK
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          STACK_SUFFIX: ${{ secrets.STACK_SUFFIX || '' }}
+          MODEL_OBJECT_KEY: ${{ secrets.MODEL_OBJECT_KEY || '' }}
+        run: |
+          cd cdk
+          cdk deploy --all --require-approval never
+```
+
+Fill in each secret defined in the deploy.yml file
