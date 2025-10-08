@@ -1,0 +1,51 @@
+name: Deploy Frontend
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Install AWS CDK CLI
+        run: npm install -g aws-cdk@2
+
+      - name: Build frontend
+        env:
+          REACT_APP_API_ID: ${{ secrets.REACT_APP_API_ID }}
+          REACT_APP_API_REGION: ${{ secrets.REACT_APP_API_REGION }}
+          REACT_APP_API_STAGE: ${{ secrets.REACT_APP_API_STAGE }}
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Deploy frontend stack
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          STACK_SUFFIX: ${{ secrets.STACK_SUFFIX || '' }}
+        run: |
+          cd cdk
+          STACK_NAME="FraudFrontendStack${STACK_SUFFIX:+-$STACK_SUFFIX}"
+          cdk deploy "$STACK_NAME" --require-approval never
