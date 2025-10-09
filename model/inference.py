@@ -1,3 +1,5 @@
+"""SageMaker-compatible inference entry points for the fraud detection model."""
+
 import joblib
 import pandas as pd
 import json

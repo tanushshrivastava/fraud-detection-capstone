@@ -1,3 +1,4 @@
+// Canonical transaction sample used for the form presets and type inference.
 const TEST_TRANSACTION = {
   trans_date_trans_time: "2020-06-21 22:37:27",
   cc_num: "6564459919350820",
@@ -22,12 +23,14 @@ const TEST_TRANSACTION = {
   merch_long: -90.158365,
 };
 
+// Build a blank transaction object shaped like the sample data.
 const createEmptyTransaction = () =>
   Object.keys(TEST_TRANSACTION).reduce((acc, key) => {
     acc[key] = "";
     return acc;
   }, {});
 
+// Convert a payload object into the string-based representation used by the form.
 const toFormState = (payload = {}) => {
   const base = createEmptyTransaction();
   Object.entries(payload).forEach(([key, value]) => {
@@ -39,6 +42,7 @@ const toFormState = (payload = {}) => {
   return base;
 };
 
+// Coerce form input strings back into numbers when the sample indicates they should be numeric.
 const coerceValue = (key, value) => {
   if (value === "" || value === null || value === undefined) {
     return value;
@@ -54,6 +58,7 @@ const coerceValue = (key, value) => {
   return value;
 };
 
+// Describe the form fields derived from the sample payload (labels, input types, steps).
 const fieldConfig = Object.entries(TEST_TRANSACTION).map(([key, sample]) => {
   const numeric = typeof sample === "number";
   return {

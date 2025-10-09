@@ -12,6 +12,8 @@ import {
 import extractErrorMessage from "../utils/extractErrorMessage";
 import "../styles/home.css";
 
+// Interactive transaction builder that lets users craft and send payloads to the API.
+
 const presetButtons = [
   { id: "blank", label: "Start Blank", builder: () => toFormState() },
   { id: "test", label: "Load Test JSON", builder: () => toFormState(TEST_TRANSACTION) },
@@ -26,6 +28,7 @@ function HomePage({ apiUrl }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dialogMessage, setDialogMessage] = useState(null);
 
+  // Transform string form values into the types expected by the backend before submission.
   const preparedPayload = useMemo(() => {
     const result = {};
     Object.entries(formData).forEach(([key, value]) => {
@@ -39,6 +42,7 @@ function HomePage({ apiUrl }) {
     [preparedPayload]
   );
 
+  // Replace the current form contents with a preset selection.
   const applyPreset = (id, builder) => {
     setFormData(builder());
     setActivePreset(id);
@@ -68,6 +72,7 @@ function HomePage({ apiUrl }) {
     }
   };
 
+  // Submit the prepared transaction to the configured API Gateway endpoint.
   const sendTransaction = async () => {
     setFormMessage(null);
     setResponseState(null);

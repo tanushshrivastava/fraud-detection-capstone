@@ -3,6 +3,9 @@ package com.fraud.cdk;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Captures naming and placeholder utilities shared across backend stacks.
+ */
 final class BackendEnvironment {
     private static final int MAX_SAGEMAKER_NAME_LENGTH = 63;
 
@@ -49,6 +52,7 @@ final class BackendEnvironment {
     }
 
     String sagemakerName(String suffix) {
+        // Enforce SageMaker name restrictions: <=63 chars, alphanumeric start, no trailing hyphen.
         String candidate = resourceBase + "-" + suffix;
         if (candidate.length() > MAX_SAGEMAKER_NAME_LENGTH) {
             candidate = candidate.substring(0, MAX_SAGEMAKER_NAME_LENGTH);
@@ -69,6 +73,7 @@ final class BackendEnvironment {
     }
 
     static String sanitizeResourceComponent(String value) {
+        // Lowercase and strip unsupported characters so resource names remain predictable.
         String sanitized = value.toLowerCase()
             .replaceAll("[^a-z0-9-]", "-")
             .replaceAll("-{2,}", "-")
@@ -81,6 +86,7 @@ final class BackendEnvironment {
     }
 
     private Map<String, String> buildPlaceholders() {
+        // Precompute string tokens that stacks can interpolate when deriving resource names.
         Map<String, String> values = new HashMap<>();
         values.put("STACK_NAME", stackName);
         values.put("STACK_SUFFIX", stackSuffix);

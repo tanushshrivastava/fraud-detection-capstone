@@ -12,6 +12,9 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 
+/**
+ * Lightweight loader that merges process environment and .env files for CDK runs.
+ */
 final class EnvConfig {
     private static final String ENV_FILE_OVERRIDE_KEY = "ENV_FILE_PATH";
     private static final List<String> ENV_FILE_CANDIDATES = List.of(".env");
@@ -21,6 +24,7 @@ final class EnvConfig {
     }
 
     static Optional<String> get(String key) {
+        // Explicit environment variables override values in .env files.
         String fromEnv = System.getenv(key);
         if (fromEnv != null) {
             String trimmed = fromEnv.trim();
@@ -59,6 +63,7 @@ final class EnvConfig {
     }
 
     private static Map<String, String> loadEnvFileValues() {
+        // Read key=value pairs from the first .env file discovered while walking upward.
         Path envFile = locateEnvFile();
         if (envFile == null) {
             return Collections.emptyMap();
@@ -100,6 +105,7 @@ final class EnvConfig {
     }
 
     private static Path locateEnvFile() {
+        // Allow CDK runs to specify an explicit env file before searching the filesystem.
         String override = System.getenv(ENV_FILE_OVERRIDE_KEY);
         if (override != null && !override.trim().isEmpty()) {
             Path overridePath = Paths.get(override.trim());
@@ -126,6 +132,7 @@ final class EnvConfig {
     }
 
     private static String sanitizeStackSuffix(String rawSuffix) {
+        // Permit alphanumeric and hyphen characters to keep stack names AWS-compatible.
         String trimmed = rawSuffix.trim();
         if (trimmed.isEmpty()) {
             return "";

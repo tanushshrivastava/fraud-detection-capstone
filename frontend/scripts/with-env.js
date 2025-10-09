@@ -5,6 +5,7 @@ const path = require("path");
 const rootDir = path.resolve(__dirname, "..", "..");
 const envFilePath = path.join(rootDir, ".env");
 
+// Read .env files and resolve referenced tokens so CRA scripts inherit shared config.
 const loadEnvFile = (filePath) => {
   const values = {};
 
@@ -64,6 +65,7 @@ const envHasValue = (key) =>
   process.env[key] !== undefined &&
   process.env[key] !== "";
 
+// Support {PLACEHOLDER} values that reference other keys within the same env file.
 const resolveValue = (key, resolving = new Set()) => {
   if (!(key in rawValues)) {
     return process.env[key];
@@ -101,4 +103,5 @@ Object.keys(rawValues).forEach((key) => {
   }
 });
 
+// Execute the desired react-scripts command with the hydrated environment variables.
 runReactScript(script, rest);

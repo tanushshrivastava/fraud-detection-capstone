@@ -1,6 +1,8 @@
 import React from "react";
 import "../styles/team.css";
 
+// Card component for displaying team rosters with photos and roles.
+
 function PeopleSection({ title, people }) {
   return (
     <section className="card team-card">

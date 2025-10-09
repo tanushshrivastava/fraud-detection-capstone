@@ -1,6 +1,8 @@
 import React from "react";
 import "../styles/layout.css";
 
+// Displays the title/banner for the currently selected page.
+
 function HeroSection({ title, subtitle, chip }) {
   return (
     <div className="app-header">

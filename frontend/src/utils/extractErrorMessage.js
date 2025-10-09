@@ -1,3 +1,4 @@
+// Normalize various Axios error shapes into a human-readable string.
 const extractErrorMessage = (error) => {
   const data = error?.response?.data;
 

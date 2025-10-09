@@ -4,10 +4,14 @@ import software.amazon.awscdk.App;
 import software.amazon.awscdk.Environment;
 import software.amazon.awscdk.StackProps;
 
+/**
+ * CDK entry point that stitches the individual stacks together into a deployable app.
+ */
 public class AppMain {
     public static void main(String[] args) {
         App app = new App();
 
+        // Resolve the AWS account/region with explicit overrides winning over CDK defaults.
         String account = EnvConfig.get("AWS_ACCOUNT_ID")
             .orElse(System.getenv("CDK_DEFAULT_ACCOUNT"));
         String region = EnvConfig.get("AWS_REGION")
@@ -63,14 +67,19 @@ public class AppMain {
             lambdaStack.getFraudLambda()
         );
 
+        // Express dependencies so CDK deploys stacks in the correct order.
         lambdaStack.addDependency(endpointStack);
         lambdaStack.addDependency(dataStack);
         apiStack.addDependency(lambdaStack);
+        // Frontend stack does not depend on the backend resources.
         new FraudFrontendStack(app, appendSuffix("FraudFrontendStack", suffix), stackProps);
 
         app.synth();
     }
 
+    /**
+     * Append a stack suffix when present to keep resource names consistent.
+     */
     private static String appendSuffix(String baseName, String suffix) {
         if (suffix == null) {
             return baseName;

@@ -1,3 +1,5 @@
+"""Helpers for reading shared CDK configuration during model training scripts."""
+
 import os
 import re
 from pathlib import Path
@@ -5,6 +7,8 @@ from typing import Dict, Optional
 
 
 def _load_env() -> Dict[str, str]:
+    """Aggregate .env overrides from common locations in the repo."""
+    # Collect overrides in priority order: local dir, repo root, then CDK directory.
     env_overrides = {}
     env_file = Path(".env")
     if env_file.exists():
@@ -23,6 +27,7 @@ def _load_env() -> Dict[str, str]:
 
 
 def _parse_env_file(path: Path) -> Dict[str, str]:
+    """Parse key/value pairs from a .env file."""
     overrides: Dict[str, str] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
@@ -37,9 +42,11 @@ def _parse_env_file(path: Path) -> Dict[str, str]:
 
 
 _ENV = _load_env()
+# Snapshot of environment overrides loaded once at import time.
 
 
 def get_env(key: str, *, expand: bool = False) -> Optional[str]:
+    """Read an environment value, preferring process vars over .env overrides."""
     raw = os.environ.get(key) or _ENV.get(key)
     if raw is None or not raw.strip():
         return None
@@ -48,6 +55,7 @@ def get_env(key: str, *, expand: bool = False) -> Optional[str]:
 
 
 def get_stack_suffix() -> Optional[str]:
+    """Return a sanitized stack suffix, respecting CDK naming constraints."""
     raw = get_env("STACK_SUFFIX")
     if not raw:
         return None
@@ -57,17 +65,20 @@ def get_stack_suffix() -> Optional[str]:
 
 
 def get_backend_stack_name() -> str:
+    """Construct the backend stack name with an optional suffix."""
     base = get_env("BACKEND_STACK_BASE") or "FraudBackendStack"
     suffix = get_stack_suffix()
     return f"{base}-{suffix}" if suffix else base
 
 
 def get_artifact_root() -> Path:
+    """Location under which trained model artifacts should be materialized."""
     root = get_env("MODEL_ARTIFACT_ROOT", expand=True) or "artifacts"
     return (Path(__file__).resolve().parent / root).resolve()
 
 
 def _apply_tokens(value: str) -> str:
+    """Substitute placeholder tokens like {STACK_NAME} in configuration strings."""
     replacements = {
         "STACK_NAME": get_backend_stack_name(),
         "STACK_SUFFIX": get_stack_suffix() or "",

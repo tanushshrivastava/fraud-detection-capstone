@@ -1,6 +1,8 @@
 import React from "react";
 import "../styles/nav.css";
 
+// Simple pill-style navigation that highlights the active page.
+
 function NavBar({ items, activeItem, onSelect }) {
   return (
     <nav className="nav-links">

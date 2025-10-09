@@ -1,6 +1,8 @@
 import React from "react";
 import "../styles/overlays.css";
 
+// Covers the UI with a spinner while asynchronous requests are in flight.
+
 function LoadingOverlay({ visible, text }) {
   if (!visible) {
     return null;

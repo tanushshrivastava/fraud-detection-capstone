@@ -1,6 +1,8 @@
 import React from "react";
 import "../styles/about.css";
 
+// Static overview describing the purpose of the capstone collaboration.
+
 function AboutPage() {
   return (
     <main className="content-stack">

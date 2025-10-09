@@ -1,6 +1,8 @@
 import React from "react";
 import "../styles/footer.css";
 
+// Renders partner branding and keeps the footer layout consistent across pages.
+
 function Footer() {
   return (
     <footer className="site-footer">
