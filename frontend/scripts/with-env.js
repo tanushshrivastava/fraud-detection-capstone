@@ -59,6 +59,10 @@ const [, , script, ...rest] = process.argv;
 
 const rawValues = loadEnvFile(envFilePath);
 const tokenPattern = /\{([A-Za-z0-9_]+)\}/g;
+const envHasValue = (key) =>
+  Object.prototype.hasOwnProperty.call(process.env, key) &&
+  process.env[key] !== undefined &&
+  process.env[key] !== "";
 
 const resolveValue = (key, resolving = new Set()) => {
   if (!(key in rawValues)) {
@@ -68,20 +72,33 @@ const resolveValue = (key, resolving = new Set()) => {
     return rawValues[key];
   }
 
+  const raw = rawValues[key];
+  if ((raw === undefined || raw === "") && envHasValue(key)) {
+    return process.env[key];
+  }
+
   resolving.add(key);
-  const resolved = rawValues[key].replace(tokenPattern, (match, token) => {
+  const resolved = raw.replace(tokenPattern, (match, token) => {
     const upperToken = token.toUpperCase();
     const replacement = resolveValue(upperToken, resolving);
     return replacement !== undefined ? replacement : match;
   });
   resolving.delete(key);
 
+  if ((resolved === undefined || resolved === "") && envHasValue(key)) {
+    rawValues[key] = process.env[key];
+    return process.env[key];
+  }
+
   rawValues[key] = resolved;
   return resolved;
 };
 
 Object.keys(rawValues).forEach((key) => {
-  process.env[key] = resolveValue(key);
+  const resolved = resolveValue(key);
+  if (resolved !== undefined) {
+    process.env[key] = resolved;
+  }
 });
 
 runReactScript(script, rest);
