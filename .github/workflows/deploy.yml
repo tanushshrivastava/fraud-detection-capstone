@@ -15,11 +15,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        # Pull the repository contents for the workflow run.
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+        # Ensure the GitHub runner has a Node runtime for CDK + frontend builds.
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -27,10 +29,13 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
+        # Assume the IAM role used for CDK deployments within this workflow.
 
       - name: Install AWS CDK CLI
         run: npm install -g aws-cdk@2
+        # Install the CDK toolkit so the runner can synth/deploy stacks.
 
+      # Build backend Lambda package
       - name: Build Lambda package
         run: |
           cd backend
@@ -40,6 +45,15 @@ jobs:
           else
             gradle buildLambda
           fi
+        # Compile the backend JAR that SageMaker/Lambda expects.
+      
+       # Build the React frontend
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+        # Produce a production-ready React build before CDK deployment.
 
       - name: Deploy CDK
         env:
@@ -50,3 +64,4 @@ jobs:
         run: |
           cd cdk
           cdk deploy --all --require-approval never
+        # Deploy every stack without interactive approval (safe in CI).

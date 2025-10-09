@@ -12,6 +12,9 @@ import software.amazon.awscdk.services.apigateway.LambdaRestApi;
 import software.amazon.awscdk.services.lambda.Function;
 import software.constructs.Construct;
 
+/**
+ * Exposes the fraud detection Lambda through an API Gateway with permissive CORS defaults.
+ */
 public class FraudApiStack extends Stack {
     private final LambdaRestApi api;
 
@@ -48,6 +51,7 @@ public class FraudApiStack extends Stack {
             .build();
     }
 
+    /** @return The API Gateway resource so other stacks can grant permissions. */
     public LambdaRestApi getApi() {
         return api;
     }

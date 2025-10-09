@@ -1,3 +1,4 @@
+// List of developers displayed on the team page.
 const devs = [
   {
     name: "Tanush Shrivastava",
@@ -21,6 +22,7 @@ const devs = [
   },
 ];
 
+// Capital One mentors highlighted alongside the development team.
 const mentors = [
   {
     name: "Peter Daly",

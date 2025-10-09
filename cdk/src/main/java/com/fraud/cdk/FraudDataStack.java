@@ -10,6 +10,9 @@ import software.amazon.awscdk.services.dynamodb.BillingMode;
 import software.amazon.awscdk.services.dynamodb.Table;
 import software.constructs.Construct;
 
+/**
+ * Creates the DynamoDB table used for optionally persisting transaction payloads.
+ */
 public class FraudDataStack extends Stack {
     private final BackendEnvironment env;
     private final Table transactionsTable;
@@ -40,11 +43,13 @@ public class FraudDataStack extends Stack {
             .build();
     }
 
+    /** @return DynamoDB table reference for other stacks to grant access to. */
     public Table getTransactionsTable() {
         return transactionsTable;
     }
 
     private String buildTableName() {
+        // DynamoDB names cap at 255 chars, so trim anything longer.
         String base = env.resourceBase();
         String candidate = base + "-transactions";
         if (candidate.length() > 255) {

@@ -17,6 +17,9 @@ import software.amazon.awscdk.services.s3.deployment.BucketDeploymentProps;
 import software.amazon.awscdk.services.s3.deployment.Source;
 import software.constructs.Construct;
 
+/**
+ * Serves the React single-page app through an S3 bucket fronted by CloudFront.
+ */
 public class FraudFrontendStack extends Stack {
     public FraudFrontendStack(final Construct scope, final String id) {
         this(scope, id, null);
@@ -30,6 +33,7 @@ public class FraudFrontendStack extends Stack {
             .blockPublicAccess(BlockPublicAccess.BLOCK_ALL)
             .build();
 
+        // CloudFront origin access identity allows the distribution to read from the private bucket.
         OriginAccessIdentity originAccessIdentity = new OriginAccessIdentity(this, "FrontendOAI");
         siteBucket.grantRead(originAccessIdentity.getGrantPrincipal());
 
@@ -56,6 +60,7 @@ public class FraudFrontendStack extends Stack {
 
         new BucketDeployment(this, "DeployReactApp",
             BucketDeploymentProps.builder()
+                // Deploy the compiled React build to S3 and invalidate CloudFront paths.
                 .sources(List.of(Source.asset("../frontend/build")))
                 .destinationBucket(siteBucket)
                 .distribution(distribution)

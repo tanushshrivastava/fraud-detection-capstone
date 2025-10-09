@@ -7,6 +7,8 @@ import AboutPage from "./pages/AboutPage";
 import TeamPage from "./pages/TeamPage";
 import "./styles/layout.css";
 
+// Root application shell that coordinates the navigation, hero, and page content.
+
 const apiUrlOverride = process.env.REACT_APP_API_URL;
 const apiId = process.env.REACT_APP_API_ID;
 const apiRegion =
@@ -47,6 +49,7 @@ function App() {
   const [activePage, setActivePage] = useState("home");
   const isApiConfigured = Boolean(API_URL);
 
+  // Memoize hero copy so static text only re-evaluates when the API connection changes.
   const heroContent = useMemo(() => {
     const chip = isApiConfigured ? "Connected to AWS" : "Configure API Connection";
     return {
@@ -56,6 +59,7 @@ function App() {
     };
   }, [isApiConfigured]);
 
+  // Switch between the different page-level React components based on the nav state.
   const renderContent = () => {
     switch (activePage) {
       case "about":

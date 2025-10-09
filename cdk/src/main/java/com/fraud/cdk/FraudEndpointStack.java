@@ -21,6 +21,9 @@ import software.amazon.awscdk.services.sagemaker.CfnEndpointConfig;
 import software.amazon.awscdk.services.sagemaker.CfnModel;
 import software.constructs.Construct;
 
+/**
+ * Provisions the SageMaker model, endpoint configuration, and endpoint wiring used by Lambda.
+ */
 public class FraudEndpointStack extends Stack {
     private final BackendEnvironment env;
     private final CfnEndpoint endpoint;
@@ -40,6 +43,7 @@ public class FraudEndpointStack extends Stack {
         IRole sagemakerRole;
         String roleArn = resolveSagemakerRoleArn(placeholders);
         if (roleArn == null) {
+            // No pre-existing execution role was provided, so create a fresh one for SageMaker.
             createdSagemakerRole = createSagemakerRole();
             roleArn = createdSagemakerRole.getRoleArn();
             sagemakerRole = createdSagemakerRole;
@@ -85,6 +89,7 @@ public class FraudEndpointStack extends Stack {
             .build();
 
         modelBucket.grantRead(sagemakerRole);
+        // Expose endpoint metadata so downstream stacks (Lambda) can reference it.
 
         CfnEndpointConfig endpointConfig = CfnEndpointConfig.Builder.create(this, "FraudEndpointConfig")
             .productionVariants(List.of(CfnEndpointConfig.ProductionVariantProperty.builder()
@@ -120,10 +125,12 @@ public class FraudEndpointStack extends Stack {
         }
     }
 
+    /** @return The name of the SageMaker endpoint created by the stack. */
     public String getEndpointName() {
         return endpoint.getAttrEndpointName();
     }
 
+    /** @return Fully qualified S3 URI for the trained model artifact. */
     public String getModelDataUrl() {
         return modelDataUrl;
     }
@@ -142,6 +149,7 @@ public class FraudEndpointStack extends Stack {
     }
 
     private Role createSagemakerRole() {
+        // Grant SageMaker permission to access S3 artifacts and perform managed operations.
         return Role.Builder.create(this, "FraudSageMakerExecutionRole")
             .assumedBy(new ServicePrincipal("sagemaker.amazonaws.com"))
             .managedPolicies(List.of(
@@ -152,6 +160,7 @@ public class FraudEndpointStack extends Stack {
     }
 
     private String buildDefaultBucketName() {
+        // Default bucket used by the training scripts when a custom name is not supplied.
         String account = env.accountId();
         String region = env.region();
 

@@ -18,6 +18,9 @@ import software.amazon.awscdk.services.lambda.Function;
 import software.amazon.awscdk.services.lambda.Runtime;
 import software.constructs.Construct;
 
+/**
+ * Defines the Lambda function that brokers API Gateway requests to SageMaker.
+ */
 public class FraudLambdaStack extends Stack {
     private final Function fraudLambda;
 
@@ -41,6 +44,7 @@ public class FraudLambdaStack extends Stack {
         Code lambdaCode = Code.fromAsset("../backend/build/libs/fraud-backend.jar");
 
         Map<String, String> environment = new HashMap<>();
+        // The Lambda function needs to know which endpoint/Table resources to talk to.
         environment.put("SAGEMAKER_ENDPOINT_NAME", endpointName);
 
         Table transactionsTable = lambdaProps.transactionsTable();
@@ -59,6 +63,7 @@ public class FraudLambdaStack extends Stack {
             .build();
 
         if (transactionsTable != null) {
+            // Allow Lambda to persist request/response records when a table is supplied.
             transactionsTable.grantReadWriteData(fraudLambda);
         }
 
@@ -68,9 +73,13 @@ public class FraudLambdaStack extends Stack {
             .build();
     }
 
+    /** @return The Lambda function that the API and other stacks depend on. */
     public Function getFraudLambda() {
         return fraudLambda;
     }
 
+    /**
+     * Carrier for the resources the Lambda stack needs from its dependencies.
+     */
     public record FraudLambdaStackProps(String endpointName, Table transactionsTable) { }
 }
