@@ -68,14 +68,12 @@ public class FraudEndpointStack extends Stack {
 
         String imageUri = EnvConfig.get("SAGEMAKER_IMAGE_URI")
             .orElse("683313688378.dkr.ecr.us-east-1.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3");
-        String modelName = EnvConfig.getWithTokens("SAGEMAKER_MODEL_NAME", placeholders)
-            .orElse(env.sagemakerName("model"));
-        String endpointConfigName = EnvConfig.getWithTokens("SAGEMAKER_ENDPOINT_CONFIG_NAME", placeholders)
-            .orElse(env.sagemakerName("endpoint-config"));
+        Optional<String> modelName = EnvConfig.getWithTokens("SAGEMAKER_MODEL_NAME", placeholders);
+        Optional<String> endpointConfigName = EnvConfig.getWithTokens("SAGEMAKER_ENDPOINT_CONFIG_NAME", placeholders);
         String endpointName = EnvConfig.getWithTokens("SAGEMAKER_ENDPOINT_NAME", placeholders)
             .orElse(env.sagemakerName("endpoint"));
 
-        CfnModel fraudModel = CfnModel.Builder.create(this, "FraudModel")
+        CfnModel.Builder modelBuilder = CfnModel.Builder.create(this, "FraudModel")
             .executionRoleArn(roleArn)
             .primaryContainer(CfnModel.ContainerDefinitionProperty.builder()
                 .image(imageUri)
@@ -84,23 +82,23 @@ public class FraudEndpointStack extends Stack {
                     "SAGEMAKER_PROGRAM", "inference.py",
                     "SAGEMAKER_SUBMIT_DIRECTORY", resolvedModelDataUrl
                 ))
-                .build())
-            .modelName(modelName)
-            .build();
+                .build());
+        modelName.ifPresent(modelBuilder::modelName);
+        CfnModel fraudModel = modelBuilder.build();
 
         modelBucket.grantRead(sagemakerRole);
         // Expose endpoint metadata so downstream stacks (Lambda) can reference it.
 
-        CfnEndpointConfig endpointConfig = CfnEndpointConfig.Builder.create(this, "FraudEndpointConfig")
+        CfnEndpointConfig.Builder endpointConfigBuilder = CfnEndpointConfig.Builder.create(this, "FraudEndpointConfig")
             .productionVariants(List.of(CfnEndpointConfig.ProductionVariantProperty.builder()
                 .modelName(fraudModel.getAttrModelName())
                 .variantName("AllTraffic")
                 .initialInstanceCount(1)
                 .instanceType("ml.t2.medium")
                 .initialVariantWeight(1.0)
-                .build()))
-            .endpointConfigName(endpointConfigName)
-            .build();
+                .build()));
+        endpointConfigName.ifPresent(endpointConfigBuilder::endpointConfigName);
+        CfnEndpointConfig endpointConfig = endpointConfigBuilder.build();
 
         this.endpoint = CfnEndpoint.Builder.create(this, "FraudEndpoint")
             .endpointName(endpointName)

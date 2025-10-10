@@ -4,4 +4,5 @@ gradle/
 gradlew
 gradlew.bat
 cdk.out/
+build/tmp/
 build/
