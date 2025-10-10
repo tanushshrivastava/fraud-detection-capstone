@@ -51,6 +51,10 @@ public class FraudLambdaStack extends Stack {
         if (transactionsTable != null) {
             environment.put("TRANSACTION_TABLE_NAME", transactionsTable.getTableName());
         }
+        Table accountsTable = lambdaProps.accountsTable();
+        if (accountsTable != null) {
+            environment.put("ACCOUNTS_TABLE_NAME", accountsTable.getTableName());
+        }
 
         this.fraudLambda = Function.Builder.create(this, "FraudLambda")
             .runtime(Runtime.JAVA_17)
@@ -65,6 +69,9 @@ public class FraudLambdaStack extends Stack {
         if (transactionsTable != null) {
             // Allow Lambda to persist request/response records when a table is supplied.
             transactionsTable.grantReadWriteData(fraudLambda);
+        }
+        if (accountsTable != null) {
+            accountsTable.grantReadWriteData(fraudLambda);
         }
 
         CfnOutput.Builder.create(this, "FraudLambdaFunctionName")
@@ -81,5 +88,5 @@ public class FraudLambdaStack extends Stack {
     /**
      * Carrier for the resources the Lambda stack needs from its dependencies.
      */
-    public record FraudLambdaStackProps(String endpointName, Table transactionsTable) { }
+    public record FraudLambdaStackProps(String endpointName, Table transactionsTable, Table accountsTable) { }
 }

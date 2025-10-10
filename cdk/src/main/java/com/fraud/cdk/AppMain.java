@@ -55,7 +55,8 @@ public class AppMain {
             stackProps,
             new FraudLambdaStack.FraudLambdaStackProps(
                 endpointStack.getEndpointName(),
-                dataStack.getTransactionsTable()
+                dataStack.getTransactionsTable(),
+                dataStack.getAccountsTable()
             )
         );
 

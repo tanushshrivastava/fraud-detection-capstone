@@ -12,4 +12,15 @@ backend/build/scripts/backend.bat
 cdk/build/tmp/compileJava/previous-compilation-data.bin
 backend/build/tmp/compileJava/previous-compilation-data.bin
 .env
-.env
+./.env
+.venv
+/.idea/compiler.xml
+/.idea/fraud-detection-capstone.iml
+/backend/build/classes/java/main/com/fraud/lambda/FraudLambdaHandler$BadRequestException.class
+/backend/build/classes/java/main/com/fraud/lambda/FraudLambdaHandler$UnauthorizedException.class
+/.idea/gradle.xml
+/cdk/gradlew
+/cdk/gradlew.bat
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/vcs.xml

@@ -16,6 +16,7 @@ import software.constructs.Construct;
 public class FraudDataStack extends Stack {
     private final BackendEnvironment env;
     private final Table transactionsTable;
+    private final Table accountsTable;
 
     public FraudDataStack(final Construct scope, final String id, final BackendEnvironment env) {
         this(scope, id, null, env);
@@ -41,6 +42,22 @@ public class FraudDataStack extends Stack {
             .value(transactionsTable.getTableName())
             .description("DynamoDB table that can store fraud prediction requests and responses.")
             .build();
+
+        String accountsTableName = buildAccountsTableName();
+        this.accountsTable = Table.Builder.create(this, "FraudAccountsTable")
+            .tableName(accountsTableName)
+            .partitionKey(Attribute.builder()
+                .name("accountId")
+                .type(AttributeType.STRING)
+                .build())
+            .billingMode(BillingMode.PAY_PER_REQUEST)
+            .removalPolicy(RemovalPolicy.DESTROY)
+            .build();
+
+        CfnOutput.Builder.create(this, "AccountsTableName")
+            .value(accountsTable.getTableName())
+            .description("DynamoDB table that stores user accounts for the demo.")
+            .build();
     }
 
     /** @return DynamoDB table reference for other stacks to grant access to. */
@@ -48,10 +65,24 @@ public class FraudDataStack extends Stack {
         return transactionsTable;
     }
 
+    /** @return DynamoDB table that stores application accounts. */
+    public Table getAccountsTable() {
+        return accountsTable;
+    }
+
     private String buildTableName() {
         // DynamoDB names cap at 255 chars, so trim anything longer.
         String base = env.resourceBase();
         String candidate = base + "-transactions";
+        if (candidate.length() > 255) {
+            candidate = candidate.substring(0, 255);
+        }
+        return candidate;
+    }
+
+    private String buildAccountsTableName() {
+        String base = env.resourceBase();
+        String candidate = base + "-accounts";
         if (candidate.length() > 255) {
             candidate = candidate.substring(0, 255);
         }

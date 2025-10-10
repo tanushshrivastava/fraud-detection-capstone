@@ -8,6 +8,9 @@ version = '1.0.0'
 description = 'Fraud Detection Lambda (Java)'
 
 java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
 }
@@ -20,12 +23,17 @@ dependencies {
     implementation platform("software.amazon.awssdk:bom:2.24.10")
 
     implementation "software.amazon.awssdk:sagemakerruntime"
+    implementation(platform("software.amazon.awssdk:bom:2.35.4"))
+    implementation("software.amazon.awssdk:bom:2.35.4")
+
+    implementation("software.amazon.awssdk:dynamodb-enhanced")
     implementation "software.amazon.awssdk:s3"
 
     implementation "com.amazonaws:aws-lambda-java-core:1.2.3"
     implementation "com.amazonaws:aws-lambda-java-events:3.11.3"
 
     implementation "org.slf4j:slf4j-simple:2.0.12"
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.20.0'
 }
 
 application {

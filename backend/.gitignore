@@ -1,1 +1,7 @@
 .gradle/
+bin/
+gradle/
+gradlew
+gradlew.bat
+cdk.out/
+build/
