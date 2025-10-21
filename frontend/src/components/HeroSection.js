@@ -10,7 +10,6 @@ function HeroSection({ title, subtitle, chip }) {
         <h1>{title}</h1>
         <p>{subtitle}</p>
       </div>
-      <div className="connection-chip">{chip}</div>
     </div>
   );
 }

@@ -12,12 +12,144 @@ import {
 import extractErrorMessage from "../utils/extractErrorMessage";
 import "../styles/home.css";
 
-// Interactive transaction builder that lets users craft and send payloads to the API.
-
 const presetButtons = [
   { id: "blank", label: "Start Blank", builder: () => toFormState() },
   { id: "test", label: "Load Test JSON", builder: () => toFormState(TEST_TRANSACTION) },
 ];
+
+const PRIMARY_FIELD_KEYS = ["merchant", "amt", "category", "city"];
+
+const PRIMARY_FIELD_OVERRIDES = {
+  merchant: { label: "Merchant Name*", placeholder: "Amazon, Walmart, etc." },
+  amt: { label: "Amount ($)*", placeholder: "99.99" },
+  category: { label: "Category", placeholder: "Shopping" },
+  city: { label: "Location*", placeholder: "New York, NY" },
+};
+
+const createInitialAccountForm = () => ({
+  name: "",
+  address: "",
+  needs: "",
+  password: "",
+  smsOptIn: false,
+});
+
+const KNOWN_RISK_KEYS = [
+  "score",
+  "fraudScore",
+  "fraud_probability",
+  "fraudProbability",
+  "probability",
+  "risk",
+  "fraud_score",
+];
+
+const findNumericScore = (value) => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "number") {
+    return Number.isNaN(value) ? null : value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const numeric = findNumericScore(item);
+      if (numeric !== null) {
+        return numeric;
+      }
+    }
+    return null;
+  }
+
+  if (typeof value === "object") {
+    for (const key of KNOWN_RISK_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(value, key)) {
+        const numeric = findNumericScore(value[key]);
+        if (numeric !== null) {
+          return numeric;
+        }
+      }
+    }
+
+    for (const nestedValue of Object.values(value)) {
+      const numeric = findNumericScore(nestedValue);
+      if (numeric !== null) {
+        return numeric;
+      }
+    }
+  }
+
+  return null;
+};
+
+const extractRiskScoreFromResponse = (payload) => {
+  if (!payload) {
+    return null;
+  }
+
+  if (payload.prediction !== undefined) {
+    const numeric = findNumericScore(payload.prediction);
+    if (numeric !== null) {
+      return numeric;
+    }
+  }
+
+  return findNumericScore(payload);
+};
+
+const formatCurrency = (value) => {
+  if (value === null || value === undefined || value === "") {
+    return "—";
+  }
+
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) {
+    return value;
+  }
+
+  return numeric.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+  });
+};
+
+const formatRiskScore = (value) => {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "—";
+  }
+  return value.toFixed(2);
+};
+
+const getRiskLevel = (score) => {
+  if (score === null || score === undefined || Number.isNaN(score)) {
+    return "unknown";
+  }
+  if (score < 0.4) {
+    return "low";
+  }
+  if (score < 0.8) {
+    return "medium";
+  }
+  return "high";
+};
+
+const abbreviateAccountId = (accountId) => {
+  if (!accountId) {
+    return "";
+  }
+  if (accountId.length <= 16) {
+    return accountId;
+  }
+  return `${accountId.slice(0, 6)}…${accountId.slice(-4)}`;
+};
 
 function HomePage({ apiUrl }) {
   const [formData, setFormData] = useState(() => toFormState());
@@ -27,18 +159,18 @@ function HomePage({ apiUrl }) {
   const [responseState, setResponseState] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dialogMessage, setDialogMessage] = useState(null);
-  const [accountForm, setAccountForm] = useState({
-    name: "",
-    address: "",
-    needs: "",
-    password: "",
-  });
+  const [accountForm, setAccountForm] = useState(() => createInitialAccountForm());
   const [loginForm, setLoginForm] = useState({ accountId: "", password: "" });
   const [accountMessage, setAccountMessage] = useState(null);
   const [loggedInAccount, setLoggedInAccount] = useState(null);
   const [isAccountBusy, setIsAccountBusy] = useState(false);
+  const [notificationThreshold, setNotificationThreshold] = useState(0.8);
+  const [phoneNumber, setPhoneNumber] = useState("+15551234567");
+  const [settingsMessage, setSettingsMessage] = useState(null);
+  const [recentTransactions, setRecentTransactions] = useState([]);
+  const [showAdvancedFields, setShowAdvancedFields] = useState(false);
+  const [activeAccountView, setActiveAccountView] = useState("signin");
 
-  // Transform string form values into the types expected by the backend before submission.
   const preparedPayload = useMemo(() => {
     const result = {};
     Object.entries(formData).forEach(([key, value]) => {
@@ -52,6 +184,31 @@ function HomePage({ apiUrl }) {
     [preparedPayload]
   );
 
+  const fieldLookup = useMemo(() => {
+    const lookup = {};
+    fieldConfig.forEach((field) => {
+      lookup[field.key] = field;
+    });
+    return lookup;
+  }, []);
+
+  const primaryFields = useMemo(
+    () =>
+      PRIMARY_FIELD_KEYS.map((key) => ({
+        key,
+        inputType: fieldLookup[key]?.inputType ?? "text",
+        step: fieldLookup[key]?.step,
+        label: PRIMARY_FIELD_OVERRIDES[key]?.label ?? fieldLookup[key]?.label ?? key,
+        placeholder: PRIMARY_FIELD_OVERRIDES[key]?.placeholder,
+      })),
+    [fieldLookup]
+  );
+
+  const advancedFields = useMemo(
+    () => fieldConfig.filter(({ key }) => !PRIMARY_FIELD_KEYS.includes(key)),
+    []
+  );
+
   const apiBase = useMemo(() => (apiUrl ? apiUrl.replace(/\/$/, "") : ""), [apiUrl]);
   const buildEndpoint = (path) => `${apiBase}${path}`;
   const overlayVisible = isSubmitting || isAccountBusy;
@@ -59,12 +216,12 @@ function HomePage({ apiUrl }) {
     ? "Sending transaction…"
     : "Working on your request…";
 
-  // Replace the current form contents with a preset selection.
   const applyPreset = (id, builder) => {
     setFormData(builder());
     setActivePreset(id);
     setFormMessage(null);
     setResponseState(null);
+    setShowAdvancedFields(false);
   };
 
   const handleFieldChange = (key, newValue) => {
@@ -80,6 +237,7 @@ function HomePage({ apiUrl }) {
       const parsed = JSON.parse(rawJson);
       setFormData(toFormState(parsed));
       setActivePreset("custom");
+      setShowAdvancedFields(true);
       setFormMessage({ type: "success", text: "JSON imported successfully." });
     } catch (error) {
       setFormMessage({
@@ -116,6 +274,13 @@ function HomePage({ apiUrl }) {
 
   const createAccount = async () => {
     setAccountMessage(null);
+    if (!accountForm.smsOptIn) {
+      setAccountMessage({
+        type: "error",
+        text: "You must opt in to SMS notifications to create an account.",
+      });
+      return;
+    }
     if (!ensureApiConfigured(setAccountMessage)) {
       return;
     }
@@ -125,11 +290,13 @@ function HomePage({ apiUrl }) {
       const { accountId } = response.data;
       setLoggedInAccount({ accountId });
       setLoginForm({ accountId, password: "" });
+      setActiveAccountView("signin");
       setAccountMessage({
         type: "success",
         text: "Account created successfully. Save your account ID to sign in later.",
         accountId,
       });
+      setAccountForm(createInitialAccountForm());
     } catch (err) {
       setAccountMessage({
         type: "error",
@@ -155,6 +322,8 @@ function HomePage({ apiUrl }) {
         type: "success",
         text: "Login successful. You can now submit transactions.",
       });
+      setSettingsMessage(null);
+      setActiveAccountView("settings");
     } catch (err) {
       setAccountMessage({
         type: "error",
@@ -168,13 +337,14 @@ function HomePage({ apiUrl }) {
 
   const logout = () => {
     setLoggedInAccount(null);
+    setSettingsMessage(null);
     setAccountMessage({
       type: "success",
       text: "Signed out successfully.",
     });
+    setActiveAccountView("signin");
   };
 
-  // Submit the prepared transaction to the configured API Gateway endpoint.
   const sendTransaction = async () => {
     setFormMessage(null);
     setResponseState(null);
@@ -187,7 +357,7 @@ function HomePage({ apiUrl }) {
     if (!loggedInAccount) {
       setFormMessage({
         type: "error",
-        text: "Log in with an account before sending a transaction.",
+        text: "Sign in with an account before submitting a transaction.",
       });
       return;
     }
@@ -199,7 +369,17 @@ function HomePage({ apiUrl }) {
         transaction: preparedPayload,
       };
       const response = await axios.post(buildEndpoint("/transactions"), payload);
-      setResponseState({ type: "success", payload: response.data });
+      const riskScore = extractRiskScoreFromResponse(response.data);
+      setResponseState({ type: "success", payload: response.data, riskScore });
+      setRecentTransactions((prev) => {
+        const entry = {
+          id: Date.now().toString(),
+          merchant: preparedPayload.merchant || "—",
+          amount: preparedPayload.amt,
+          risk: riskScore,
+        };
+        return [entry, ...prev].slice(0, 5);
+      });
     } catch (err) {
       const message = extractErrorMessage(err);
       setResponseState({ type: "error", message });
@@ -208,6 +388,32 @@ function HomePage({ apiUrl }) {
       setIsSubmitting(false);
     }
   };
+
+  const updateNotificationSettings = (event) => {
+    event.preventDefault();
+    setSettingsMessage(null);
+
+    if (!loggedInAccount) {
+      setSettingsMessage({
+        type: "error",
+        text: "Sign in to update notification settings.",
+      });
+      return;
+    }
+
+    setSettingsMessage({
+      type: "success",
+      text: `We'll notify you when a transaction exceeds a risk score of ${notificationThreshold.toFixed(
+        2
+      )}.`,
+    });
+  };
+
+  const sessionLabel = loggedInAccount
+    ? abbreviateAccountId(loggedInAccount.accountId)
+    : "Not signed in";
+
+  const sliderDisabled = !loggedInAccount;
 
   return (
     <>
@@ -218,199 +424,427 @@ function HomePage({ apiUrl }) {
         onDismiss={() => setDialogMessage(null)}
       />
 
-      <main className="content-grid">
-        <section className="card">
-          <div className="card-header">
-            <h2>Account Access</h2>
-            {loggedInAccount && (
-              <div className="account-status-row">
-                <div className="account-id-chip">
-                  <span>Account ID</span>
-                  <code>{loggedInAccount.accountId}</code>
-                </div>
-                <button type="button" className="pill-button" onClick={logout}>
-                  Sign Out
-                </button>
-              </div>
+      <div className="dashboard">
+        <header className="dashboard-header">
+          <div className="dashboard-brand">
+            <span className="shield-icon" aria-hidden="true">
+              <span />
+            </span>
+            <div>
+              <h1>Capstone</h1>
+              <p>Fraud detection control center</p>
+            </div>
+          </div>
+          <div className="session-controls">
+            <span className="session-label">{sessionLabel}</span>
+            {loggedInAccount ? (
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={logout}
+                disabled={isAccountBusy}
+              >
+                Sign Out
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => setActiveAccountView("signin")}
+              >
+                Sign In
+              </button>
             )}
           </div>
+        </header>
 
-          <div className="account-sections">
-            <div className="account-section">
-              <h3>Create Account</h3>
-              <p className="account-subtext">
-                Provide your details to generate a new account ID you can use with the demo.
-              </p>
-              <div className="form-grid">
-                <label className="form-field">
-                  <span>Name</span>
-                  <input
-                    type="text"
-                    value={accountForm.name}
-                    onChange={(event) => handleAccountFieldChange("name", event.target.value)}
-                  />
-                </label>
-                <label className="form-field">
-                  <span>Address</span>
-                  <input
-                    type="text"
-                    value={accountForm.address}
-                    onChange={(event) => handleAccountFieldChange("address", event.target.value)}
-                  />
-                </label>
-                <label className="form-field">
-                  <span>Needs</span>
-                  <input
-                    type="text"
-                    value={accountForm.needs}
-                    onChange={(event) => handleAccountFieldChange("needs", event.target.value)}
-                  />
-                </label>
-                <label className="form-field">
-                  <span>Password</span>
-                  <input
-                    type="password"
-                    value={accountForm.password}
-                    onChange={(event) => handleAccountFieldChange("password", event.target.value)}
-                  />
-                </label>
+        <div className="dashboard-columns">
+          <div className="dashboard-main">
+            <section className="panel transaction-panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Submit a Transaction</h2>
+                  <p>
+                    Capture merchant details and evaluate the fraud risk in real time.
+                  </p>
+                </div>
+                <div className="preset-row">
+                  <span>Quick fill:</span>
+                  {presetButtons.map((preset) => (
+                    <button
+                      key={preset.id}
+                      className={`pill-button ${activePreset === preset.id ? "active" : ""}`}
+                      type="button"
+                      onClick={() => applyPreset(preset.id, preset.builder)}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="cta-row">
+
+              <div className="field-grid primary-field-grid">
+                {primaryFields.map(({ key, label, inputType, step, placeholder }) => (
+                  <label key={key} className="form-field">
+                    <span>{label}</span>
+                    <input
+                      type={inputType}
+                      step={step}
+                      placeholder={placeholder}
+                      value={formData[key]}
+                      onChange={(event) => handleFieldChange(key, event.target.value)}
+                    />
+                  </label>
+                ))}
+              </div>
+
+              <div className="action-row">
                 <button
                   type="button"
                   className="primary-button"
-                  onClick={createAccount}
-                  disabled={isAccountBusy}
+                  onClick={sendTransaction}
+                  disabled={isSubmitting}
                 >
-                  {isAccountBusy ? "Creating…" : "Create Account"}
+                  {isSubmitting ? "Submitting…" : "Submit Transaction"}
                 </button>
               </div>
-            </div>
 
-            <div className="account-section">
-              <h3>Sign In</h3>
-              <p className="account-subtext">
-                Enter your account ID and password to unlock transaction submissions.
+              {formMessage && (
+                <StatusBanner variant={formMessage.type}>
+                  <p>{formMessage.text}</p>
+                </StatusBanner>
+              )}
+
+              {responseState && responseState.type === "success" && (
+                <StatusBanner variant="success" title="Prediction Response">
+                  <p>Review the model output below.</p>
+                  <pre>{JSON.stringify(responseState.payload, null, 2)}</pre>
+                </StatusBanner>
+              )}
+
+              {responseState && responseState.type === "error" && (
+                <StatusBanner variant="error" title="Request Error">
+                  <p>{responseState.message}</p>
+                </StatusBanner>
+              )}
+
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => setShowAdvancedFields((prev) => !prev)}
+              >
+                {showAdvancedFields ? "Hide advanced options" : "Advanced options"}
+              </button>
+
+              {showAdvancedFields && (
+                <div className="advanced-panel">
+                  <h3>Complete Transaction Fields</h3>
+                  <p className="advanced-description">
+                    Provide additional data points to mirror the model training schema.
+                  </p>
+                  <div className="field-grid advanced-field-grid">
+                    {advancedFields.map(({ key, label, inputType, step }) => (
+                      <label key={key} className="form-field">
+                        <span>{label}</span>
+                        <input
+                          type={inputType}
+                          step={step}
+                          value={formData[key]}
+                          onChange={(event) => handleFieldChange(key, event.target.value)}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <div className="advanced-tools">
+                    <div className="json-preview-card">
+                      <div className="json-preview-header">
+                        <h4>JSON Preview</h4>
+                        <span>Ready to send</span>
+                      </div>
+                      <pre className="json-preview-block">{previewJson}</pre>
+                    </div>
+                    <div className="json-import-card">
+                      <h4>Import JSON</h4>
+                      <p>Paste a transaction payload to populate the form instantly.</p>
+                      <textarea
+                        placeholder="Paste JSON here to load it into the form."
+                        value={rawJson}
+                        onChange={(event) => setRawJson(event.target.value)}
+                      />
+                      <button type="button" onClick={importRawJson}>
+                        Import JSON
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="panel recent-panel">
+              <div className="panel-header">
+                <h2>Recent Transactions</h2>
+                <p>Latest submissions and their predicted risk level.</p>
+              </div>
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Merchant</th>
+                      <th>Amount</th>
+                      <th>Risk</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentTransactions.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="empty-state">
+                          Submit a transaction to populate this list.
+                        </td>
+                      </tr>
+                    ) : (
+                      recentTransactions.map((entry) => {
+                        const riskLevel = getRiskLevel(entry.risk);
+                        return (
+                          <tr key={entry.id}>
+                            <td>{entry.merchant || "—"}</td>
+                            <td>{formatCurrency(entry.amount)}</td>
+                            <td>
+                              <span className={`risk-indicator ${riskLevel}`}>
+                                <span className="risk-dot" />
+                                {formatRiskScore(entry.risk)}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <p className="table-footnote">
+                Sample thresholds: 0.0 – 0.3 low risk, 0.4 – 0.7 medium risk, above 0.8 high risk.
               </p>
-              <div className="form-grid">
-                <label className="form-field">
-                  <span>Account ID</span>
+            </section>
+          </div>
+
+          <aside className="dashboard-side">
+            <section className="panel settings-panel" id="account-settings">
+              <div className="panel-header">
+                <h2>Account Settings</h2>
+                <p>Notification threshold ({notificationThreshold.toFixed(2)})</p>
+              </div>
+
+              <form className="settings-form" onSubmit={updateNotificationSettings}>
+                <div className="range-wrapper">
+                  <div className="range-labels">
+                    <span>Low (0.0)</span>
+                    <span>High (1.0)</span>
+                  </div>
                   <input
-                    type="text"
-                    value={loginForm.accountId}
-                    onChange={(event) => handleLoginFieldChange("accountId", event.target.value)}
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={notificationThreshold}
+                    onChange={(event) => setNotificationThreshold(Number(event.target.value))}
+                    disabled={sliderDisabled}
+                  />
+                </div>
+                <p className="range-copy">
+                  You will receive notifications for transactions with a fraud rating above your selected threshold.
+                </p>
+
+                <label className="form-field compact">
+                  <span>Phone Number</span>
+                  <input
+                    type="tel"
+                    value={phoneNumber}
+                    onChange={(event) => setPhoneNumber(event.target.value)}
+                    placeholder="+15551234567"
+                    disabled={sliderDisabled}
                   />
                 </label>
-                <label className="form-field">
-                  <span>Password</span>
-                  <input
-                    type="password"
-                    value={loginForm.password}
-                    onChange={(event) => handleLoginFieldChange("password", event.target.value)}
-                  />
-                </label>
+
+                <div className="action-row">
+                  <button type="submit" className="primary-button" disabled={sliderDisabled}>
+                    Update Settings
+                  </button>
+                </div>
+              </form>
+
+              {settingsMessage && (
+                <StatusBanner variant={settingsMessage.type}>
+                  <p>{settingsMessage.text}</p>
+                </StatusBanner>
+              )}
+
+              <div className="account-access">
+                <div className="account-access-header">
+                  <h3>{loggedInAccount ? "Manage Access" : "Access Your Account"}</h3>
+                  <p>
+                    {loggedInAccount
+                      ? "Stay signed in to continue evaluating transactions."
+                      : "Create an account or sign in to submit transactions."}
+                  </p>
+                </div>
+
+                <div className="tab-row">
+                  <button
+                    type="button"
+                    className={`tab-button ${activeAccountView === "signin" ? "active" : ""}`}
+                    onClick={() => setActiveAccountView("signin")}
+                  >
+                    Sign In
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab-button ${activeAccountView === "signup" ? "active" : ""}`}
+                    onClick={() => setActiveAccountView("signup")}
+                  >
+                    Create Account
+                  </button>
+                </div>
+
+                {activeAccountView === "signin" ? (
+                  <form
+                    className="auth-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      loginAccount();
+                    }}
+                  >
+                    <label className="form-field compact">
+                      <span>Account ID</span>
+                      <input
+                        type="text"
+                        value={loginForm.accountId}
+                        onChange={(event) => handleLoginFieldChange("accountId", event.target.value)}
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>Password</span>
+                      <input
+                        type="password"
+                        value={loginForm.password}
+                        onChange={(event) => handleLoginFieldChange("password", event.target.value)}
+                      />
+                    </label>
+                    <div className="action-row">
+                      <button
+                        type="submit"
+                        className="primary-button"
+                        disabled={isAccountBusy}
+                      >
+                        {isAccountBusy ? "Signing In…" : "Sign In"}
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <form
+                    className="auth-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      createAccount();
+                    }}
+                  >
+                    <label className="form-field compact">
+                      <span>Name</span>
+                      <input
+                        type="text"
+                        value={accountForm.name}
+                        onChange={(event) => handleAccountFieldChange("name", event.target.value)}
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>Address</span>
+                      <input
+                        type="text"
+                        value={accountForm.address}
+                        onChange={(event) => handleAccountFieldChange("address", event.target.value)}
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>Needs</span>
+                      <input
+                        type="text"
+                        value={accountForm.needs}
+                        onChange={(event) => handleAccountFieldChange("needs", event.target.value)}
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>Password</span>
+                      <input
+                        type="password"
+                        value={accountForm.password}
+                        onChange={(event) => handleAccountFieldChange("password", event.target.value)}
+                      />
+                    </label>
+                    <label className="checkbox-field">
+                      <input
+                        type="checkbox"
+                        checked={accountForm.smsOptIn}
+                        onChange={(event) => handleAccountFieldChange("smsOptIn", event.target.checked)}
+                        required
+                      />
+                      <span>
+                        I agree to receive SMS notifications related to fraud alerts for this demo account.
+                      </span>
+                    </label>
+                    <div className="action-row">
+                      <button
+                        type="submit"
+                        className="primary-button"
+                        disabled={isAccountBusy || !accountForm.smsOptIn}
+                      >
+                        {isAccountBusy ? "Creating…" : "Create Account"}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {accountMessage && (
+                  <StatusBanner variant={accountMessage.type}>
+                    <p>{accountMessage.text}</p>
+                    {accountMessage.accountId && (
+                      <p>
+                        Your account ID: <code>{accountMessage.accountId}</code>
+                      </p>
+                    )}
+                  </StatusBanner>
+                )}
               </div>
-              <div className="cta-row">
-                <button
-                  type="button"
-                  className="primary-button"
-                  onClick={loginAccount}
-                  disabled={isAccountBusy}
-                >
-                  {isAccountBusy ? "Signing In…" : "Sign In"}
-                </button>
+            </section>
+
+            <section className="panel info-panel">
+              <div className="panel-header">
+                <h2>How It Works</h2>
               </div>
-            </div>
-          </div>
-
-          {accountMessage && (
-            <StatusBanner variant={accountMessage.type}>
-              <p>{accountMessage.text}</p>
-              {accountMessage.accountId && <p>Your account ID: <code>{accountMessage.accountId}</code></p>}
-            </StatusBanner>
-          )}
-        </section>
-
-        <section className="card">
-          <div className="card-header">
-            <h2>Transaction Builder</h2>
-            <div className="preset-row">
-              <span>Quick fill:</span>
-              {presetButtons.map((preset) => (
-                <button
-                  key={preset.id}
-                  className={`pill-button ${activePreset === preset.id ? "active" : ""}`}
-                  type="button"
-                  onClick={() => applyPreset(preset.id, preset.builder)}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="form-grid">
-            {fieldConfig.map(({ key, label, inputType, step }) => (
-              <label key={key} className="form-field">
-                <span>{label}</span>
-                <input
-                  type={inputType}
-                  step={step}
-                  value={formData[key]}
-                  onChange={(event) => handleFieldChange(key, event.target.value)}
-                />
-              </label>
-            ))}
-          </div>
-
-          <div className="cta-row">
-            <button
-              type="button"
-              className="primary-button"
-              onClick={sendTransaction}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? "Sending…" : "Send Transaction"}
-            </button>
-          </div>
-        </section>
-
-        <section className="card">
-          <div className="card-header">
-            <h2>JSON Preview</h2>
-          </div>
-          <pre className="json-preview">{previewJson}</pre>
-
-          <div className="json-import">
-            <textarea
-              placeholder="Paste JSON here to load it into the form."
-              value={rawJson}
-              onChange={(event) => setRawJson(event.target.value)}
-            />
-            <button type="button" onClick={importRawJson}>
-              Import JSON
-            </button>
-          </div>
-
-          {formMessage && (
-            <StatusBanner variant={formMessage.type}>
-              <p>{formMessage.text}</p>
-            </StatusBanner>
-          )}
-
-          {responseState && responseState.type === "success" && (
-            <StatusBanner variant="success" title="Response">
-              <pre>{JSON.stringify(responseState.payload, null, 2)}</pre>
-            </StatusBanner>
-          )}
-
-          {responseState && responseState.type === "error" && (
-            <StatusBanner variant="error" title="Request Error">
-              <p>{responseState.message}</p>
-            </StatusBanner>
-          )}
-        </section>
-      </main>
+              <p>
+                Our AI-powered fraud detection system analyzes your transactions in real time and
+                assigns a risk score from 0 to 1.
+              </p>
+              <ul className="risk-legend">
+                <li>
+                  <span className="legend-dot low" />
+                  0.0 – 0.3: Low risk
+                </li>
+                <li>
+                  <span className="legend-dot medium" />
+                  0.4 – 0.7: Medium risk
+                </li>
+                <li>
+                  <span className="legend-dot high" />
+                  0.8 – 1.0: High risk
+                </li>
+              </ul>
+              <p className="info-copy">
+                When a transaction exceeds your notification threshold, we'll send an alert to your
+                registered phone number.
+              </p>
+            </section>
+          </aside>
+        </div>
+      </div>
     </>
   );
 }
