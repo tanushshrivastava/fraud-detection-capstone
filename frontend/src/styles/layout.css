@@ -1,6 +1,6 @@
 .app-shell {
   min-height: 100vh;
-  background: radial-gradient(circle at top left, #dbeafe, #f8fafc);
+  background: #f1f5f9;
   padding: 2.75rem clamp(1.25rem, 5vw, 4rem);
   color: #0f172a;
   box-sizing: border-box;
@@ -28,8 +28,8 @@
   justify-content: center;
   width: 52px;
   height: 52px;
-  border-radius: 18px;
-  background: linear-gradient(140deg, #0f172a, #1d4ed8 65%, #dc2626);
+  border-radius: 12px;
+  background: #1d4ed8;
   box-shadow: 0 12px 28px -16px rgba(15, 23, 42, 0.8);
 }
 
@@ -57,8 +57,8 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 1.75rem;
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(2, 132, 199, 0.8));
-  border-radius: 22px;
+  background: #1e293b;
+  border-radius: 12px;
   padding: 2rem clamp(1.25rem, 4vw, 3rem);
   color: #f8fafc;
   box-shadow: 0 24px 45px -28px rgba(15, 23, 42, 0.8);
@@ -76,17 +76,6 @@
   line-height: 1.6;
 }
 
-.connection-chip {
-  align-self: center;
-  padding: 0.6rem 1.1rem;
-  border-radius: 999px;
-  background: rgba(241, 245, 249, 0.2);
-  color: #e0f2fe;
-  font-size: 0.92rem;
-  border: 1px solid rgba(224, 242, 254, 0.4);
-  white-space: nowrap;
-}
-
 .content-grid {
   display: grid;
   gap: 1.75rem;
@@ -101,7 +90,7 @@
 
 .card {
   background: white;
-  border-radius: 20px;
+  border-radius: 12px;
   box-shadow: 0 20px 38px -26px rgba(15, 23, 42, 0.55);
   padding: 1.9rem;
   display: flex;

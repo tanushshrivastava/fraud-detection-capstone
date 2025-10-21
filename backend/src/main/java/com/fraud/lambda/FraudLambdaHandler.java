@@ -90,6 +90,10 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         String address = requireText(body, "address");
         String needs = requireText(body, "needs");
         String password = requireText(body, "password");
+        boolean smsOptIn = requireBoolean(body, "smsOptIn");
+        if (!smsOptIn) {
+            throw new BadRequestException("SMS opt-in must be accepted to create an account");
+        }
 
         String accountId = UUID.randomUUID().toString();
         String salt = UUID.randomUUID().toString();
@@ -102,6 +106,7 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         item.put("needs", AttributeValue.builder().s(needs).build());
         item.put("passwordHash", AttributeValue.builder().s(passwordHash).build());
         item.put("passwordSalt", AttributeValue.builder().s(salt).build());
+        item.put("smsOptIn", AttributeValue.builder().bool(true).build());
         item.put("createdAt", AttributeValue.builder().s(Instant.now().toString()).build());
 
         try (DynamoDbClient dynamoDb = DynamoDbClient.create()) {
@@ -274,6 +279,17 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
             throw new BadRequestException("Field '" + fieldName + "' cannot be blank");
         }
         return text;
+    }
+
+    private boolean requireBoolean(JsonNode node, String fieldName) {
+        if (node == null || !node.has(fieldName) || node.get(fieldName).isNull()) {
+            throw new BadRequestException("Field '" + fieldName + "' is required");
+        }
+        JsonNode valueNode = node.get(fieldName);
+        if (valueNode.isBoolean()) {
+            return valueNode.booleanValue();
+        }
+        throw new BadRequestException("Field '" + fieldName + "' must be a boolean");
     }
 
     private String normalizePath(APIGatewayProxyRequestEvent event) {
