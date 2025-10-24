@@ -31,6 +31,8 @@ const createInitialAccountForm = () => ({
   address: "",
   needs: "",
   password: "",
+  phoneNumber: "",
+  fraudThreshold: 0.7,
   smsOptIn: false,
 });
 
@@ -287,8 +289,8 @@ function HomePage({ apiUrl }) {
     setIsAccountBusy(true);
     try {
       const response = await axios.post(buildEndpoint("/accounts"), accountForm);
-      const { accountId } = response.data;
-      setLoggedInAccount({ accountId });
+      const { accountId, fraudThreshold } = response.data;
+      setLoggedInAccount({ accountId, fraudThreshold });
       setLoginForm({ accountId, password: "" });
       setActiveAccountView("signin");
       setAccountMessage({
@@ -316,8 +318,8 @@ function HomePage({ apiUrl }) {
     setIsAccountBusy(true);
     try {
       const response = await axios.post(buildEndpoint("/login"), loginForm);
-      const { accountId } = response.data;
-      setLoggedInAccount({ accountId });
+      const { accountId, fraudThreshold } = response.data;
+      setLoggedInAccount({ accountId, fraudThreshold });
       setAccountMessage({
         type: "success",
         text: "Login successful. You can now submit transactions.",
@@ -370,7 +372,13 @@ function HomePage({ apiUrl }) {
       };
       const response = await axios.post(buildEndpoint("/transactions"), payload);
       const riskScore = extractRiskScoreFromResponse(response.data);
-      setResponseState({ type: "success", payload: response.data, riskScore });
+      const { smsSent } = response.data;
+      setResponseState({
+        type: "success",
+        payload: response.data,
+        riskScore,
+        smsSent
+      });
       setRecentTransactions((prev) => {
         const entry = {
           id: Date.now().toString(),
@@ -516,10 +524,28 @@ function HomePage({ apiUrl }) {
               )}
 
               {responseState && responseState.type === "success" && (
-                <StatusBanner variant="success" title="Prediction Response">
-                  <p>Review the model output below.</p>
-                  <pre>{JSON.stringify(responseState.payload, null, 2)}</pre>
-                </StatusBanner>
+                <>
+                  {responseState.smsSent !== undefined && (
+                    <StatusBanner
+                      variant={responseState.smsSent ? "info" : "success"}
+                      title={responseState.smsSent ? "SMS Alert Sent" : "No SMS Alert"}
+                    >
+                      {responseState.smsSent ? (
+                        <p>
+                          🔔 Fraud score <strong>{formatRiskScore(responseState.riskScore)}</strong> exceeds your threshold <strong>{loggedInAccount?.fraudThreshold?.toFixed(2) || "—"}</strong>. An SMS alert has been sent to your phone.
+                        </p>
+                      ) : (
+                        <p>
+                          ✓ Fraud score <strong>{formatRiskScore(responseState.riskScore)}</strong> is below your threshold <strong>{loggedInAccount?.fraudThreshold?.toFixed(2) || "—"}</strong>. No SMS alert needed.
+                        </p>
+                      )}
+                    </StatusBanner>
+                  )}
+                  <StatusBanner variant="success" title="Prediction Response">
+                    <p>Review the model output below.</p>
+                    <pre>{JSON.stringify(responseState.payload, null, 2)}</pre>
+                  </StatusBanner>
+                </>
               )}
 
               {responseState && responseState.type === "error" && (
@@ -779,6 +805,29 @@ function HomePage({ apiUrl }) {
                         onChange={(event) => handleAccountFieldChange("password", event.target.value)}
                       />
                     </label>
+                    <label className="form-field compact">
+                      <span>Phone Number</span>
+                      <input
+                        type="tel"
+                        value={accountForm.phoneNumber}
+                        onChange={(event) => handleAccountFieldChange("phoneNumber", event.target.value)}
+                        placeholder="+15551234567"
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>Fraud Alert Threshold: {accountForm.fraudThreshold.toFixed(2)}</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={accountForm.fraudThreshold}
+                        onChange={(event) => handleAccountFieldChange("fraudThreshold", parseFloat(event.target.value))}
+                      />
+                    </label>
+                    <p className="range-copy">
+                      You will receive SMS notifications for transactions with a fraud rating above {accountForm.fraudThreshold.toFixed(2)}.
+                    </p>
                     <label className="checkbox-field">
                       <input
                         type="checkbox"
@@ -787,7 +836,7 @@ function HomePage({ apiUrl }) {
                         required
                       />
                       <span>
-                        I agree to receive SMS notifications related to fraud alerts for this demo account.
+                        I agree to receive SMS text messages from Capstone Fraud Detection to the phone number provided above. Message frequency varies based on transaction activity. Message and data rates may apply. Reply STOP to opt out at any time.
                       </span>
                     </label>
                     <div className="action-row">
