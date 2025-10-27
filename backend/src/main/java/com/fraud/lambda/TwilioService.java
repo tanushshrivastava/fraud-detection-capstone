@@ -63,7 +63,8 @@ public class TwilioService {
         messageText.append("Transaction ID: ").append(transactionId);
         messageText.append("Was this you?\n");
         messageText.append("Reply YES if this transaction is valid, or NO if it's fraudulent.\n\n");
-        messageText.append("Thank you for helping us protect your account.");
+        messageText.append("Thank you for helping us protect your account.\n");
+        messageText.append("Reply STOP to opt out of these alerts.");
 
         try {
             Message message = Message.creator(
@@ -101,17 +102,17 @@ public class TwilioService {
             return null;
         }
 
-        // Check for affirmative responses
+        // Check for affirmative responses (YES means legitimate)
         if (normalized.equals("YES") || normalized.equals("Y") ||
                 normalized.equals("FRAUD") || normalized.equals("TRUE")) {
-            return true;
+            return false;
         }
 
-        // Check for negative responses
+        // Check for negative responses (NO means fraud)
         if (normalized.equals("NO") || normalized.equals("N") ||
                 normalized.equals("LEGITIMATE") || normalized.equals("FALSE") ||
                 normalized.equals("NOT FRAUD")) {
-            return false;
+            return true;
         }
 
         // Unclear responses

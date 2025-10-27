@@ -372,7 +372,7 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
             // Unclear response - send help message
             return setResponse(baseResponse, 200,
                     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
-                            "<Response><Message>Please reply with YES if fraudulent or NO if legitimate.</Message></Response>");
+                            "<Response><Message>Please reply with YES if legitimate or NO if fraudulent.</Message></Response>");
         }
 
         // Update the transaction in the database
@@ -522,8 +522,8 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         }
     }
 
-    // NEW: Additional helper methods
-
+    // NEW: added 4 additional helper methods (getAccount(), extractFraudScore(),
+    // extractAmount(), extractLocation())
     private Map<String, AttributeValue> getAccount(String accountId) throws Exception {
         if (ACCOUNTS_TABLE_NAME == null || ACCOUNTS_TABLE_NAME.isBlank()) {
             throw new IllegalStateException("Accounts table not configured");
