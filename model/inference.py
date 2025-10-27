@@ -29,10 +29,13 @@ def preprocess(df):
         df["hour"] = 0
         df["dow"] = 0
 
-    # Compute age from dob
+    # Compute age at transaction time (to match training)
     if "dob" in df.columns:
         df["dob"] = pd.to_datetime(df["dob"], errors="coerce")
-        df["age"] = ((datetime.now() - df["dob"]).dt.days / 365.25).fillna(0)
+        if "trans_date_trans_time" in df.columns:
+            df["age"] = ((df["trans_date_trans_time"] - df["dob"]).dt.days / 365.25).clip(lower=0).fillna(0)
+        else:
+            df["age"] = ((datetime.now() - df["dob"]).dt.days / 365.25).clip(lower=0).fillna(0)
     else:
         df["age"] = 0
 
