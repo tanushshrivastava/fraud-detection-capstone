@@ -4,8 +4,6 @@ import com.twilio.Twilio;
 import com.twilio.rest.api.v2010.account.Message;
 import com.twilio.type.PhoneNumber;
 
-import java.util.Optional;
-
 public class TwilioService {
     private static final String TWILIO_ACCOUNT_SID = System.getenv("TWILIO_ACCOUNT_SID");
     private static final String TWILIO_AUTH_TOKEN = System.getenv("TWILIO_AUTH_TOKEN");
@@ -37,33 +35,35 @@ public class TwilioService {
      * @param toPhoneNumber     Customer's phone number (e.g., "+15551234567")
      * @param transactionId     Unique transaction identifier
      * @param fraudScore        Fraud prediction score (0.0 to 1.0)
-     * @param transactionAmount Transaction amount (optional)
+     * @param transactionAmount Transaction amount
+     * @param location          Transaction location
      * @return Message SID if successful, null if failed
      */
-    public static String sendFraudAlert(String toPhoneNumber, String transactionId, double fraudScore,
-            String transactionAmount) {
+    public static String sendFraudAlert(String toPhoneNumber, String transactionId,
+            String transactionAmount, String location) {
         if (!isConfigured()) {
             throw new IllegalStateException("Twilio is not configured. Check environment variables.");
         }
 
         ensureInitialized();
 
-        // Format fraud score as a percentage
-        int scorePercent = (int) (fraudScore * 100);
-
         // Build the message
         StringBuilder messageText = new StringBuilder();
-        messageText.append("FRAUD ALERT!\n\n");
-        messageText.append("Suspicious transaction detected!\n");
+        messageText.append("CapOne Fraud Alert:\n\n");
+        messageText.append("We detected a possible fraudulent transaction on your account.\n");
 
         if (transactionAmount != null && !transactionAmount.isBlank()) {
-            messageText.append("Amount: $").append(transactionAmount).append("\n");
+            messageText.append("$").append(transactionAmount).append(" at ");
         }
 
-        messageText.append("Fraud Score: ").append(scorePercent).append("%\n\n");
-        messageText.append("Was this transaction fraudulent?\n");
-        messageText.append("Reply YES if fraud, NO if legitimate.\n\n");
+        if (location != null && !location.isBlank()) {
+            messageText.append(location).append(".\n"); // TODO: Add timestamp if available
+        }
+
         messageText.append("Transaction ID: ").append(transactionId);
+        messageText.append("Was this you?\n");
+        messageText.append("Reply YES if this transaction is valid, or NO if it's fraudulent.\n\n");
+        messageText.append("Thank you for helping us protect your account.");
 
         try {
             Message message = Message.creator(
@@ -79,7 +79,8 @@ public class TwilioService {
 
     /**
      * Parse the incoming SMS response from a customer
-     *
+     * TODO: Revise after getting approved by Twilio
+     * 
      * @param messageBody The text content of the SMS reply
      * @return true if user confirmed fraud, false if legitimate, null if unclear
      */

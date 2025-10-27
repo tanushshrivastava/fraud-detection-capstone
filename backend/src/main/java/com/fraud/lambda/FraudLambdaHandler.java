@@ -62,7 +62,7 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
                 return handleLogin(event, context, response);
             } else if ("POST".equals(method) && ("/transactions".equals(path) || "/".equals(path))) {
                 return handleTransaction(event, context, response);
-            } else if ("POST".equals(method) && "/webhook/twilio".equals(path)) {
+            } else if ("POST".equals(method) && "/webhook/twilio".equals(path)) { // NEW webhook path
                 return handleTwilioWebhook(event, context, response);
             }
             return setResponse(response, 404, "{\"error\":\"Resource not found\"}");
@@ -209,7 +209,7 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
 
         ensureAccountExists(accountId);
 
-        // NEW: Get account details (includes phone number and threshold)
+        // NEW: Get account details (includes phone number and fraudThreshold)
         Map<String, AttributeValue> account = getAccount(accountId);
 
         String payload = OBJECT_MAPPER.writeValueAsString(transactionNode);
@@ -230,28 +230,56 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         // persistTransaction(accountId, transactionNode, result, context);
 
         // NEW: Parse fraud score from result
-        double fraudScore = extractFraudScore(result);
+        double fraudScore = 0.7; // default
+        try {
+            fraudScore = extractFraudScore(result);
+        } catch (Exception e) {
+            context.getLogger().log("Failed to extract fraud score: " + e.getMessage());
+        }
         String transactionId = persistTransaction(accountId, transactionNode, result, context);
 
         // NEW: Check if we should send SMS alert
         boolean smsSent = false;
-        double threshold = 0.7; // default
+        double fraudThreshold = 0.7; // default
         if (TwilioService.isConfigured()) {
             try {
-                threshold = Double.parseDouble(
+                fraudThreshold = Double.parseDouble(
                         account.getOrDefault("fraudThreshold", AttributeValue.builder().n("0.7").build()).n());
 
-                if (fraudScore >= threshold) {
+                if (fraudScore >= fraudThreshold) {
                     String phoneNumber = account.get("phoneNumber").s();
                     String amount = extractAmount(transactionNode);
+                    String location = extractLocation(transactionNode);
 
                     String messageSid = TwilioService.sendFraudAlert(
                             phoneNumber,
                             transactionId,
+                            amount,
+                            location);
+                    context.getLogger().log(String.format(
+                            "Sent fraud alert SMS:\n" +
+                                    " - Phone: %s\n" +
+                                    " - Transaction ID: %s\n" +
+                                    " - Fraud Score: %.4f\n" +
+                                    " - Fraud Threshold: %.4f\n" +
+                                    " - Amount: %s\n" +
+                                    " - Location: %s\n" +
+                                    " - Message SID: %s\n",
+                            phoneNumber,
+                            transactionId,
                             fraudScore,
-                            amount);
-                    context.getLogger().log("Sent fraud alert SMS: " + messageSid);
+                            fraudThreshold,
+                            amount,
+                            location,
+                            messageSid));
+
                     smsSent = true;
+                } else {
+                    context.getLogger().log(String.format(
+                            "Fraud score %.4f below threshold %.4f; no SMS sent for transaction %s",
+                            fraudScore,
+                            fraudThreshold,
+                            transactionId));
                 }
             } catch (Exception e) {
                 context.getLogger().log("Failed to send SMS alert: " + e.getMessage());
@@ -265,7 +293,7 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         responseBody.put("prediction", safeParseJson(result));
         responseBody.put("smsSent", smsSent);
         responseBody.put("fraudScore", fraudScore);
-        responseBody.put("fraudThreshold", threshold);
+        responseBody.put("fraudThreshold", fraudThreshold);
         return setResponse(baseResponse, 200, toJson(responseBody));
     }
 
@@ -290,34 +318,7 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         }
     }
 
-    // private void persistTransaction(String accountId, JsonNode transactionNode,
-    // String prediction, Context context) {
-    // if (TRANSACTIONS_TABLE_NAME == null || TRANSACTIONS_TABLE_NAME.isBlank()) {
-    // return;
-    // }
-
-    // Map<String, AttributeValue> item = new HashMap<>();
-    // item.put("id",
-    // AttributeValue.builder().s(UUID.randomUUID().toString()).build());
-    // item.put("accountId", AttributeValue.builder().s(accountId).build());
-    // item.put("transaction",
-    // AttributeValue.builder().s(transactionNode.toString()).build());
-    // item.put("prediction", AttributeValue.builder().s(prediction).build());
-    // item.put("createdAt",
-    // AttributeValue.builder().s(Instant.now().toString()).build());
-
-    // try (DynamoDbClient dynamoDb = DynamoDbClient.create()) {
-    // dynamoDb.putItem(PutItemRequest.builder()
-    // .tableName(TRANSACTIONS_TABLE_NAME)
-    // .item(item)
-    // .build());
-    // } catch (Exception e) {
-    // context.getLogger().log("Failed to persist transaction: " + e.getMessage());
-    // }
-    // }
-
     // UPDATED: persistTransaction() to return transaction ID
-
     private String persistTransaction(String accountId, JsonNode transactionNode, String prediction, Context context) {
         if (TRANSACTIONS_TABLE_NAME == null || TRANSACTIONS_TABLE_NAME.isBlank()) {
             return UUID.randomUUID().toString(); // Return ID even if we don't persist
@@ -344,7 +345,7 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
     }
 
     // NEW METHOD: Twilio Webhook Handler
-
+    // TODO: Revise after getting approved by Twilio
     private APIGatewayProxyResponseEvent handleTwilioWebhook(
             APIGatewayProxyRequestEvent event,
             Context context,
@@ -392,7 +393,6 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
     }
 
     // NEW: Helper method for parsing form data
-
     private Map<String, String> parseFormData(String body) {
         Map<String, String> data = new HashMap<>();
         if (body == null || body.isBlank()) {
@@ -543,34 +543,37 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         }
     }
 
-    private double extractFraudScore(String predictionResult) {
-        try {
-            JsonNode node = OBJECT_MAPPER.readTree(predictionResult);
-            // Adjust this based on actual SageMaker output format
-            // Common formats: {"score": 0.85} or {"predictions": [0.85]} or just 0.85
-            if (node.isNumber()) {
-                return node.asDouble();
-            }
-            if (node.has("score")) {
-                return node.get("score").asDouble();
-            }
-            if (node.has("predictions") && node.get("predictions").isArray()) {
-                return node.get("predictions").get(0).asDouble();
-            }
-            return 0.0;
-        } catch (Exception e) {
-            return 0.0;
+    private double extractFraudScore(String predictionResult) throws Exception {
+        JsonNode node = OBJECT_MAPPER.readTree(predictionResult);
+        if (node.has("fraud_probability")) {
+            return node.get("fraud_probability").asDouble();
+        } else {
+            throw new Exception("fraud_probability not found in prediction result");
         }
     }
 
     private String extractAmount(JsonNode transaction) {
-        if (transaction.has("amount")) {
-            return transaction.get("amount").asText();
-        }
-        if (transaction.has("Amount")) {
-            return transaction.get("Amount").asText();
+        if (transaction.has("amt")) {
+            return transaction.get("amt").asText();
         }
         return null;
+    }
+
+    private String extractLocation(JsonNode transaction) {
+        String merchant = transaction.path("merchant").asText(null);
+        String city = transaction.path("city").asText(null);
+        String state = transaction.path("state").asText(null);
+
+        if (merchant == null || city == null || state == null) {
+            return null; // missing info
+        }
+
+        // Remove "fraud_" prefix if it exists and uppercase merchant
+        if (merchant.startsWith("fraud_")) {
+            merchant = merchant.substring("fraud_".length());
+        }
+
+        return merchant.toUpperCase() + ", " + city + " " + state.toUpperCase();
     }
 
     private static class BadRequestException extends RuntimeException {
