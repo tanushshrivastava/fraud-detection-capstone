@@ -18,6 +18,7 @@ backend/build/tmp/compileJava/previous-compilation-data.bin
 /.idea/fraud-detection-capstone.iml
 /backend/build/classes/java/main/com/fraud/lambda/FraudLambdaHandler$BadRequestException.class
 /backend/build/classes/java/main/com/fraud/lambda/FraudLambdaHandler$UnauthorizedException.class
+*.class
 /.idea/gradle.xml
 /cdk/gradlew
 /cdk/gradlew.bat

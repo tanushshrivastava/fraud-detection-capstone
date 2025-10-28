@@ -120,6 +120,7 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         item.put("passwordHash", AttributeValue.builder().s(passwordHash).build());
         item.put("passwordSalt", AttributeValue.builder().s(salt).build());
         item.put("smsOptIn", AttributeValue.builder().bool(true).build());
+        item.put("smsOptIn", AttributeValue.builder().bool(true).build());
         item.put("createdAt", AttributeValue.builder().s(Instant.now().toString()).build());
 
         try (DynamoDbClient dynamoDb = DynamoDbClient.create()) {
