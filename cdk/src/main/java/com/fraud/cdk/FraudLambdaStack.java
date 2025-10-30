@@ -56,6 +56,11 @@ public class FraudLambdaStack extends Stack {
             environment.put("ACCOUNTS_TABLE_NAME", accountsTable.getTableName());
         }
 
+        // Add Twilio configuration if present in environment (optional, for SMS alerts)
+        EnvConfig.get("TWILIO_ACCOUNT_SID").ifPresent(sid -> environment.put("TWILIO_ACCOUNT_SID", sid));
+        EnvConfig.get("TWILIO_AUTH_TOKEN").ifPresent(token -> environment.put("TWILIO_AUTH_TOKEN", token));
+        EnvConfig.get("TWILIO_PHONE_NUMBER").ifPresent(phone -> environment.put("TWILIO_PHONE_NUMBER", phone));
+
         this.fraudLambda = Function.Builder.create(this, "FraudLambda")
             .runtime(Runtime.JAVA_17)
             .handler("com.fraud.lambda.FraudLambdaHandler::handleRequest")
