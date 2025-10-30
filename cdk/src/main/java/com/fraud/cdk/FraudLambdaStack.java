@@ -60,6 +60,7 @@ public class FraudLambdaStack extends Stack {
         EnvConfig.get("TWILIO_ACCOUNT_SID").ifPresent(sid -> environment.put("TWILIO_ACCOUNT_SID", sid));
         EnvConfig.get("TWILIO_AUTH_TOKEN").ifPresent(token -> environment.put("TWILIO_AUTH_TOKEN", token));
         EnvConfig.get("TWILIO_PHONE_NUMBER").ifPresent(phone -> environment.put("TWILIO_PHONE_NUMBER", phone));
+        EnvConfig.get("GOOGLE_MAPS_API_KEY").ifPresent(key -> environment.put("GOOGLE_MAPS_API_KEY", key));
 
         this.fraudLambda = Function.Builder.create(this, "FraudLambda")
             .runtime(Runtime.JAVA_17)

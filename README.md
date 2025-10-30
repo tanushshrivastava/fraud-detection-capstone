@@ -163,8 +163,10 @@ aws s3 rm s3://trained-data-${AWS_ACCOUNT_ID}-${AWS_REGION}/ \
 ```
 When you are done testing, please run aws sagemaker delete-endpoint --endpoint-name fraudbackendstack-{suffix}-endpoint to delete the endpoint
 
-you can restart it by running aws sagemaker create-endpoint \
-  --endpoint-name fraudbackendstack-{suffix}-endpoint \
+you can restart it by running 
+
+aws sagemaker create-endpoint
+  --endpoint-name fraudbackendstack-{suffix}-endpoint
   --endpoint-config-name fraudbackendstack-{suffix}-endpoint-config
 
 example JSON to use:

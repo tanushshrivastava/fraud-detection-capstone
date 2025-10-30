@@ -13,17 +13,28 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
+import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 import software.amazon.awssdk.services.dynamodb.model.ResourceNotFoundException;
+import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
 import software.amazon.awssdk.services.sagemakerruntime.SageMakerRuntimeClient;
 import software.amazon.awssdk.services.sagemakerruntime.model.InvokeEndpointRequest;
 import software.amazon.awssdk.services.sagemakerruntime.model.InvokeEndpointResponse;
 
+import java.io.IOException;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -37,6 +48,8 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
             .orElse(DEFAULT_ENDPOINT_NAME);
     private static final String ACCOUNTS_TABLE_NAME = System.getenv("ACCOUNTS_TABLE_NAME");
     private static final String TRANSACTIONS_TABLE_NAME = System.getenv("TRANSACTION_TABLE_NAME");
+    private static final String GOOGLE_MAPS_API_KEY = System.getenv("GOOGLE_MAPS_API_KEY");
+    private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
 
     @Override
     public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent event, Context context) {
@@ -60,6 +73,14 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
                 return handleCreateAccount(event, context, response);
             } else if ("POST".equals(method) && "/login".equals(path)) {
                 return handleLogin(event, context, response);
+            } else if (("PUT".equals(method) || "PATCH".equals(method)) && "/accounts/settings".equals(path)) {
+                return handleUpdateAccountSettings(event, context, response);
+            } else if ("GET".equals(method) && path.startsWith("/accounts/") && path.endsWith("/transactions")) {
+                String accountId = extractAccountIdFromTransactionsPath(path);
+                if (accountId != null && !accountId.isBlank()) {
+                    return handleGetRecentTransactions(accountId, event, context, response);
+                }
+                return setResponse(response, 404, "{\"error\":\"Account not specified\"}");
             } else if ("POST".equals(method) && ("/transactions".equals(path) || "/".equals(path))) {
                 return handleTransaction(event, context, response);
             } else if ("POST".equals(method) && "/webhook/twilio".equals(path)) { // NEW webhook path
@@ -87,17 +108,10 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         }
 
         JsonNode body = parseBody(event);
-        String name = requireText(body, "name");
+        String username = requireText(body, "username");
+        String email = requireText(body, "email");
         String address = requireText(body, "address");
-        String needs = requireText(body, "needs");
         String password = requireText(body, "password");
-        String phoneNumber = requireText(body, "phoneNumber"); // NEW
-        boolean smsOptIn = requireBoolean(body, "smsOptIn");
-        if (!smsOptIn) {
-            throw new BadRequestException("SMS opt-in must be accepted to create an account");
-        }
-
-        // NEW: Add optional fraud threshold (default to 0.7)
         double fraudThreshold = 0.7;
         if (body.has("fraudThreshold") && body.get("fraudThreshold").isNumber()) {
             fraudThreshold = body.get("fraudThreshold").asDouble();
@@ -105,22 +119,28 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
                 throw new BadRequestException("Fraud threshold must be between 0 and 1");
             }
         }
+        String phoneNumber = Optional.ofNullable(optionalText(body, "phoneNumber")).orElse("");
 
         String accountId = UUID.randomUUID().toString();
         String salt = UUID.randomUUID().toString();
         String passwordHash = hashPassword(password, salt);
 
+        GeocodeResult geocode = geocodeAddress(address, context);
+
         Map<String, AttributeValue> item = new HashMap<>();
         item.put("accountId", AttributeValue.builder().s(accountId).build());
-        item.put("name", AttributeValue.builder().s(name).build());
+        item.put("username", AttributeValue.builder().s(username).build());
+        item.put("email", AttributeValue.builder().s(email).build());
         item.put("address", AttributeValue.builder().s(address).build());
-        item.put("needs", AttributeValue.builder().s(needs).build());
-        item.put("phoneNumber", AttributeValue.builder().s(phoneNumber).build()); // NEW
-        item.put("fraudThreshold", AttributeValue.builder().n(String.valueOf(fraudThreshold)).build()); // NEW
+        item.put("phoneNumber", AttributeValue.builder().s(phoneNumber).build());
+        item.put("fraudThreshold", AttributeValue.builder().n(String.valueOf(fraudThreshold)).build());
+        if (geocode != null) {
+            item.put("latitude", AttributeValue.builder().n(Double.toString(geocode.latitude())).build());
+            item.put("longitude", AttributeValue.builder().n(Double.toString(geocode.longitude())).build());
+        }
         item.put("passwordHash", AttributeValue.builder().s(passwordHash).build());
         item.put("passwordSalt", AttributeValue.builder().s(salt).build());
-        item.put("smsOptIn", AttributeValue.builder().bool(true).build());
-        item.put("smsOptIn", AttributeValue.builder().bool(true).build());
+        item.put("smsOptIn", AttributeValue.builder().bool(false).build());
         item.put("createdAt", AttributeValue.builder().s(Instant.now().toString()).build());
 
         try (DynamoDbClient dynamoDb = DynamoDbClient.create()) {
@@ -134,6 +154,7 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         Map<String, Object> responseBody = new HashMap<>();
         responseBody.put("accountId", accountId);
         responseBody.put("fraudThreshold", fraudThreshold);
+        responseBody.put("phoneNumber", phoneNumber);
         return setResponse(baseResponse, 201, toJson(responseBody));
     }
 
@@ -146,22 +167,46 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         }
 
         JsonNode body = parseBody(event);
-        String accountId = requireText(body, "accountId");
+        String providedAccountId = optionalText(body, "accountId");
+        String providedUsername = optionalText(body, "username");
         String password = requireText(body, "password");
 
-        Map<String, AttributeValue> key = Map.of(
-                "accountId", AttributeValue.builder().s(accountId).build());
+        String accountId = null;
+        Map<String, AttributeValue> item = null;
 
-        Map<String, AttributeValue> item;
         try (DynamoDbClient dynamoDb = DynamoDbClient.create()) {
-            item = dynamoDb.getItem(GetItemRequest.builder()
-                    .tableName(ACCOUNTS_TABLE_NAME)
-                    .key(key)
-                    .consistentRead(true)
-                    .build()).item();
+            if (providedAccountId != null && !providedAccountId.isBlank()) {
+                accountId = providedAccountId;
+                Map<String, AttributeValue> key = Map.of(
+                        "accountId", AttributeValue.builder().s(accountId).build());
+                item = dynamoDb.getItem(GetItemRequest.builder()
+                        .tableName(ACCOUNTS_TABLE_NAME)
+                        .key(key)
+                        .consistentRead(true)
+                        .build()).item();
+            } else if (providedUsername != null && !providedUsername.isBlank()) {
+                QueryResponse response = dynamoDb.query(QueryRequest.builder()
+                        .tableName(ACCOUNTS_TABLE_NAME)
+                        .indexName("username-index")
+                        .keyConditionExpression("username = :username")
+                        .expressionAttributeValues(Map.of(
+                                ":username", AttributeValue.builder().s(providedUsername).build()))
+                        .limit(1)
+                        .build());
+                if (response.count() > 0 && !response.items().isEmpty()) {
+                    item = response.items().get(0);
+                    accountId = item.getOrDefault("accountId", AttributeValue.builder().s("").build()).s();
+                }
+            } else {
+                throw new BadRequestException("Either 'username' or 'accountId' is required");
+            }
         }
 
         if (item == null || item.isEmpty()) {
+            throw new UnauthorizedException("Account not found");
+        }
+
+        if (accountId == null || accountId.isBlank()) {
             throw new UnauthorizedException("Account not found");
         }
 
@@ -176,16 +221,103 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
             throw new UnauthorizedException("Invalid credentials");
         }
 
-        // Get fraud threshold from account
-        double fraudThreshold = 0.7; // default
-        if (item.containsKey("fraudThreshold") && item.get("fraudThreshold").n() != null) {
-            fraudThreshold = Double.parseDouble(item.get("fraudThreshold").n());
-        }
+        double fraudThreshold = extractNumeric(item, "fraudThreshold", 0.7);
+        String phoneNumber = item.containsKey("phoneNumber") ? item.get("phoneNumber").s() : "";
+        String username = item.containsKey("username") ? item.get("username").s() : "";
+
+        List<Map<String, Object>> recentTransactions = fetchRecentTransactions(accountId, 10);
 
         Map<String, Object> responseBody = new HashMap<>();
         responseBody.put("message", "Login successful");
         responseBody.put("accountId", accountId);
         responseBody.put("fraudThreshold", fraudThreshold);
+        responseBody.put("phoneNumber", phoneNumber);
+        responseBody.put("username", username);
+        responseBody.put("recentTransactions", recentTransactions);
+        return setResponse(baseResponse, 200, toJson(responseBody));
+    }
+
+    private APIGatewayProxyResponseEvent handleUpdateAccountSettings(
+            APIGatewayProxyRequestEvent event,
+            Context context,
+            APIGatewayProxyResponseEvent baseResponse) throws Exception {
+        if (ACCOUNTS_TABLE_NAME == null || ACCOUNTS_TABLE_NAME.isBlank()) {
+            throw new IllegalStateException("Accounts table not configured");
+        }
+
+        JsonNode body = parseBody(event);
+        String accountId = requireText(body, "accountId");
+        String phoneNumber = optionalText(body, "phoneNumber");
+        Double fraudThreshold = null;
+        if (body.has("fraudThreshold") && !body.get("fraudThreshold").isNull()) {
+            if (!body.get("fraudThreshold").isNumber()) {
+                throw new BadRequestException("fraudThreshold must be a number between 0 and 1");
+            }
+            double candidate = body.get("fraudThreshold").asDouble();
+            if (candidate < 0 || candidate > 1) {
+                throw new BadRequestException("fraudThreshold must be between 0 and 1");
+            }
+            fraudThreshold = candidate;
+        }
+
+        if (phoneNumber == null && fraudThreshold == null) {
+            throw new BadRequestException("No account settings provided for update");
+        }
+
+        Map<String, AttributeValue> key = Map.of("accountId", AttributeValue.builder().s(accountId).build());
+        Map<String, AttributeValue> expressionValues = new HashMap<>();
+        List<String> assignments = new ArrayList<>();
+
+        if (phoneNumber != null) {
+            expressionValues.put(":phoneNumber", AttributeValue.builder().s(phoneNumber).build());
+            assignments.add("phoneNumber = :phoneNumber");
+        }
+        if (fraudThreshold != null) {
+            expressionValues.put(":fraudThreshold", AttributeValue.builder().n(Double.toString(fraudThreshold)).build());
+            assignments.add("fraudThreshold = :fraudThreshold");
+        }
+
+        String updateExpression = "SET " + String.join(", ", assignments);
+
+        try (DynamoDbClient dynamoDb = DynamoDbClient.create()) {
+            dynamoDb.updateItem(UpdateItemRequest.builder()
+                    .tableName(ACCOUNTS_TABLE_NAME)
+                    .key(key)
+                    .updateExpression(updateExpression)
+                    .expressionAttributeValues(expressionValues)
+                    .build());
+        }
+
+        Map<String, AttributeValue> updatedAccount = getAccount(accountId);
+        double updatedThreshold = extractNumeric(updatedAccount, "fraudThreshold", 0.7);
+        String updatedPhone = updatedAccount.containsKey("phoneNumber") ? updatedAccount.get("phoneNumber").s() : "";
+
+        Map<String, Object> responseBody = new HashMap<>();
+        responseBody.put("accountId", accountId);
+        responseBody.put("fraudThreshold", updatedThreshold);
+        responseBody.put("phoneNumber", updatedPhone);
+        return setResponse(baseResponse, 200, toJson(responseBody));
+    }
+
+    private APIGatewayProxyResponseEvent handleGetRecentTransactions(
+            String accountId,
+            APIGatewayProxyRequestEvent event,
+            Context context,
+            APIGatewayProxyResponseEvent baseResponse) throws Exception {
+        ensureAccountExists(accountId);
+        int limit = 10;
+        if (event.getQueryStringParameters() != null && event.getQueryStringParameters().containsKey("limit")) {
+            try {
+                limit = Math.max(1, Math.min(25, Integer.parseInt(event.getQueryStringParameters().get("limit"))));
+            } catch (NumberFormatException e) {
+                context.getLogger().log("Invalid limit parameter: " + e.getMessage());
+            }
+        }
+
+        List<Map<String, Object>> recentTransactions = fetchRecentTransactions(accountId, limit);
+        Map<String, Object> responseBody = new HashMap<>();
+        responseBody.put("accountId", accountId);
+        responseBody.put("items", recentTransactions);
         return setResponse(baseResponse, 200, toJson(responseBody));
     }
 
@@ -237,18 +369,17 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         } catch (Exception e) {
             context.getLogger().log("Failed to extract fraud score: " + e.getMessage());
         }
-        String transactionId = persistTransaction(accountId, transactionNode, result, context);
+        PersistedTransaction persisted = persistTransaction(accountId, transactionNode, result, context);
+        String transactionId = persisted.id();
+
+        double fraudThreshold = extractNumeric(account, "fraudThreshold", 0.7);
 
         // NEW: Check if we should send SMS alert
         boolean smsSent = false;
-        double fraudThreshold = 0.7; // default
         if (TwilioService.isConfigured()) {
             try {
-                fraudThreshold = Double.parseDouble(
-                        account.getOrDefault("fraudThreshold", AttributeValue.builder().n("0.7").build()).n());
-
-                if (fraudScore >= fraudThreshold) {
-                    String phoneNumber = account.get("phoneNumber").s();
+                String phoneNumber = account.containsKey("phoneNumber") ? account.get("phoneNumber").s() : "";
+                if (fraudScore >= fraudThreshold && phoneNumber != null && !phoneNumber.isBlank()) {
                     String amount = extractAmount(transactionNode);
                     String location = extractLocation(transactionNode);
 
@@ -295,7 +426,68 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         responseBody.put("smsSent", smsSent);
         responseBody.put("fraudScore", fraudScore);
         responseBody.put("fraudThreshold", fraudThreshold);
+        responseBody.put("transactionSummary", buildTransactionSummary(
+                transactionId,
+                persisted.createdAt(),
+                transactionNode,
+                result,
+                fraudScore));
         return setResponse(baseResponse, 200, toJson(responseBody));
+    }
+
+    private List<Map<String, Object>> fetchRecentTransactions(String accountId, int limit) throws Exception {
+        if (TRANSACTIONS_TABLE_NAME == null || TRANSACTIONS_TABLE_NAME.isBlank()) {
+            return List.of();
+        }
+
+        Map<String, AttributeValue> expressionValues = Map.of(
+                ":accountId", AttributeValue.builder().s(accountId).build());
+
+        QueryRequest request = QueryRequest.builder()
+                .tableName(TRANSACTIONS_TABLE_NAME)
+                .indexName("accountId-createdAt-index")
+                .keyConditionExpression("accountId = :accountId")
+                .expressionAttributeValues(expressionValues)
+                .scanIndexForward(false)
+                .limit(limit)
+                .build();
+
+        try (DynamoDbClient dynamoDb = DynamoDbClient.create()) {
+            QueryResponse response = dynamoDb.query(request);
+            List<Map<String, Object>> items = new ArrayList<>();
+            if (response.items() == null) {
+                return items;
+            }
+            for (Map<String, AttributeValue> record : response.items()) {
+                String transactionId = record.getOrDefault("id", AttributeValue.builder().s("").build()).s();
+                String createdAt = record.getOrDefault("createdAt", AttributeValue.builder().s("").build()).s();
+                String serializedTransaction = record.getOrDefault("transaction", AttributeValue.builder().s("{}").build()).s();
+                String predictionJson = record.getOrDefault("prediction", AttributeValue.builder().s("{}").build()).s();
+
+                JsonNode transactionNode;
+                try {
+                    transactionNode = OBJECT_MAPPER.readTree(serializedTransaction);
+                } catch (Exception parseEx) {
+                    transactionNode = OBJECT_MAPPER.createObjectNode();
+                }
+
+                double fraudScore = 0.0;
+                try {
+                    fraudScore = extractFraudScore(predictionJson);
+                } catch (Exception ignored) {
+                    // Use default fraudScore if parsing fails.
+                }
+
+                Map<String, Object> summary = buildTransactionSummary(
+                        transactionId,
+                        createdAt,
+                        transactionNode,
+                        predictionJson,
+                        fraudScore);
+                items.add(summary);
+            }
+            return items;
+        }
     }
 
     private void ensureAccountExists(String accountId) throws Exception {
@@ -320,18 +512,19 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
     }
 
     // UPDATED: persistTransaction() to return transaction ID
-    private String persistTransaction(String accountId, JsonNode transactionNode, String prediction, Context context) {
+private PersistedTransaction persistTransaction(String accountId, JsonNode transactionNode, String prediction, Context context) {
         if (TRANSACTIONS_TABLE_NAME == null || TRANSACTIONS_TABLE_NAME.isBlank()) {
-            return UUID.randomUUID().toString(); // Return ID even if we don't persist
+            return new PersistedTransaction(UUID.randomUUID().toString(), Instant.now().toString());
         }
 
         String transactionId = UUID.randomUUID().toString();
+        String createdAt = Instant.now().toString();
         Map<String, AttributeValue> item = new HashMap<>();
         item.put("id", AttributeValue.builder().s(transactionId).build());
         item.put("accountId", AttributeValue.builder().s(accountId).build());
         item.put("transaction", AttributeValue.builder().s(transactionNode.toString()).build());
         item.put("prediction", AttributeValue.builder().s(prediction).build());
-        item.put("createdAt", AttributeValue.builder().s(Instant.now().toString()).build());
+        item.put("createdAt", AttributeValue.builder().s(createdAt).build());
 
         try (DynamoDbClient dynamoDb = DynamoDbClient.create()) {
             dynamoDb.putItem(PutItemRequest.builder()
@@ -342,7 +535,7 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
             context.getLogger().log("Failed to persist transaction: " + e.getMessage());
         }
 
-        return transactionId;
+        return new PersistedTransaction(transactionId, createdAt);
     }
 
     // NEW METHOD: Twilio Webhook Handler
@@ -439,15 +632,12 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         return text;
     }
 
-    private boolean requireBoolean(JsonNode node, String fieldName) {
+    private String optionalText(JsonNode node, String fieldName) {
         if (node == null || !node.has(fieldName) || node.get(fieldName).isNull()) {
-            throw new BadRequestException("Field '" + fieldName + "' is required");
+            return null;
         }
-        JsonNode valueNode = node.get(fieldName);
-        if (valueNode.isBoolean()) {
-            return valueNode.booleanValue();
-        }
-        throw new BadRequestException("Field '" + fieldName + "' must be a boolean");
+        String text = node.get(fieldName).asText();
+        return text != null ? text.trim() : null;
     }
 
     private String normalizePath(APIGatewayProxyRequestEvent event) {
@@ -471,12 +661,32 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         return path;
     }
 
+    private String extractAccountIdFromTransactionsPath(String path) {
+        if (path == null) {
+            return null;
+        }
+        String prefix = "/accounts/";
+        String suffix = "/transactions";
+        if (!path.startsWith(prefix) || !path.endsWith(suffix)) {
+            return null;
+        }
+        String inner = path.substring(prefix.length(), path.length() - suffix.length());
+        if (inner.isBlank()) {
+            return null;
+        }
+        int slashIndex = inner.indexOf('/');
+        if (slashIndex >= 0) {
+            return null;
+        }
+        return inner;
+    }
+
     private Map<String, String> buildCorsHeaders() {
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
         headers.put("Access-Control-Allow-Origin", "*");
         headers.put("Access-Control-Allow-Headers", "*");
-        headers.put("Access-Control-Allow-Methods", "OPTIONS,POST");
+        headers.put("Access-Control-Allow-Methods", "OPTIONS,POST,PUT,PATCH,GET");
         return headers;
     }
 
@@ -523,8 +733,28 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         }
     }
 
-    // NEW: added 4 additional helper methods (getAccount(), extractFraudScore(),
-    // extractAmount(), extractLocation())
+    private double extractNumeric(Map<String, AttributeValue> item, String fieldName, double defaultValue) {
+        if (item == null || !item.containsKey(fieldName)) {
+            return defaultValue;
+        }
+        AttributeValue value = item.get(fieldName);
+        if (value.n() != null && !value.n().isBlank()) {
+            try {
+                return Double.parseDouble(value.n());
+            } catch (NumberFormatException ignored) {
+                return defaultValue;
+            }
+        }
+        if (value.s() != null && !value.s().isBlank()) {
+            try {
+                return Double.parseDouble(value.s());
+            } catch (NumberFormatException ignored) {
+                return defaultValue;
+            }
+        }
+        return defaultValue;
+    }
+
     private Map<String, AttributeValue> getAccount(String accountId) throws Exception {
         if (ACCOUNTS_TABLE_NAME == null || ACCOUNTS_TABLE_NAME.isBlank()) {
             throw new IllegalStateException("Accounts table not configured");
@@ -576,6 +806,68 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
 
         return merchant.toUpperCase() + ", " + city + " " + state.toUpperCase();
     }
+
+    private Map<String, Object> buildTransactionSummary(
+            String transactionId,
+            String createdAt,
+            JsonNode transactionNode,
+            String predictionRaw,
+            double fraudScore) {
+        Map<String, Object> summary = new HashMap<>();
+        summary.put("transactionId", transactionId);
+        summary.put("createdAt", createdAt);
+        summary.put("fraudScore", fraudScore);
+        summary.put("merchant", transactionNode.path("merchant").asText(null));
+        summary.put("amount", extractAmount(transactionNode));
+        summary.put("category", transactionNode.path("category").asText(null));
+        summary.put("city", transactionNode.path("city").asText(null));
+        summary.put("prediction", safeParseJson(predictionRaw));
+        return summary;
+    }
+
+    private GeocodeResult geocodeAddress(String address, Context context) {
+        if (GOOGLE_MAPS_API_KEY == null || GOOGLE_MAPS_API_KEY.isBlank()) {
+            context.getLogger().log("GOOGLE_MAPS_API_KEY not configured; skipping geocoding.");
+            return null;
+        }
+        try {
+            String encodedAddress = URLEncoder.encode(address, StandardCharsets.UTF_8);
+            String uri = String.format(
+                    "https://maps.googleapis.com/maps/api/geocode/json?address=%s&key=%s",
+                    encodedAddress,
+                    GOOGLE_MAPS_API_KEY);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(uri))
+                    .GET()
+                    .build();
+            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                JsonNode body = OBJECT_MAPPER.readTree(response.body());
+                JsonNode results = body.path("results");
+                if (results.isArray() && results.size() > 0) {
+                    JsonNode location = results.get(0).path("geometry").path("location");
+                    if (location.hasNonNull("lat") && location.hasNonNull("lng")) {
+                        return new GeocodeResult(location.get("lat").asDouble(), location.get("lng").asDouble());
+                    }
+                }
+                context.getLogger().log("Geocode response missing coordinates for address: " + address);
+            } else {
+                context.getLogger().log("Geocode request failed with status " + response.statusCode());
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            context.getLogger().log("Geocode request interrupted: " + e.getMessage());
+        } catch (IOException e) {
+            context.getLogger().log("Geocode request failed: " + e.getMessage());
+        } catch (Exception e) {
+            context.getLogger().log("Unexpected geocode error: " + e.getMessage());
+        }
+        return null;
+    }
+
+    private record GeocodeResult(double latitude, double longitude) { }
+
+    private record PersistedTransaction(String id, String createdAt) { }
 
     private static class BadRequestException extends RuntimeException {
         BadRequestException(String message) {
