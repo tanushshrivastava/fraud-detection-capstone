@@ -31,6 +31,8 @@ const createInitialAccountForm = () => ({
   address: "",
   needs: "",
   password: "",
+  phoneNumber: "",
+  fraudThreshold: 0.7,
   smsOptIn: false,
 });
 
@@ -45,9 +47,7 @@ const KNOWN_RISK_KEYS = [
 ];
 
 const findNumericScore = (value) => {
-  if (value === null || value === undefined) {
-    return null;
-  }
+  if (value === null || value === undefined) return null;
 
   if (typeof value === "number") {
     return Number.isNaN(value) ? null : value;
@@ -61,9 +61,7 @@ const findNumericScore = (value) => {
   if (Array.isArray(value)) {
     for (const item of value) {
       const numeric = findNumericScore(item);
-      if (numeric !== null) {
-        return numeric;
-      }
+      if (numeric !== null) return numeric;
     }
     return null;
   }
@@ -72,17 +70,12 @@ const findNumericScore = (value) => {
     for (const key of KNOWN_RISK_KEYS) {
       if (Object.prototype.hasOwnProperty.call(value, key)) {
         const numeric = findNumericScore(value[key]);
-        if (numeric !== null) {
-          return numeric;
-        }
+        if (numeric !== null) return numeric;
       }
     }
-
     for (const nestedValue of Object.values(value)) {
       const numeric = findNumericScore(nestedValue);
-      if (numeric !== null) {
-        return numeric;
-      }
+      if (numeric !== null) return numeric;
     }
   }
 
@@ -90,30 +83,18 @@ const findNumericScore = (value) => {
 };
 
 const extractRiskScoreFromResponse = (payload) => {
-  if (!payload) {
-    return null;
-  }
-
+  if (!payload) return null;
   if (payload.prediction !== undefined) {
     const numeric = findNumericScore(payload.prediction);
-    if (numeric !== null) {
-      return numeric;
-    }
+    if (numeric !== null) return numeric;
   }
-
   return findNumericScore(payload);
 };
 
 const formatCurrency = (value) => {
-  if (value === null || value === undefined || value === "") {
-    return "—";
-  }
-
+  if (value === null || value === undefined || value === "") return "—";
   const numeric = Number(value);
-  if (Number.isNaN(numeric)) {
-    return value;
-  }
-
+  if (Number.isNaN(numeric)) return value;
   return numeric.toLocaleString("en-US", {
     style: "currency",
     currency: "USD",
@@ -122,32 +103,20 @@ const formatCurrency = (value) => {
 };
 
 const formatRiskScore = (value) => {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return "—";
-  }
-  return value.toFixed(2);
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return Number(value).toFixed(2);
 };
 
 const getRiskLevel = (score) => {
-  if (score === null || score === undefined || Number.isNaN(score)) {
-    return "unknown";
-  }
-  if (score < 0.4) {
-    return "low";
-  }
-  if (score < 0.8) {
-    return "medium";
-  }
+  if (score === null || score === undefined || Number.isNaN(score)) return "unknown";
+  if (score < 0.4) return "low";
+  if (score < 0.8) return "medium";
   return "high";
 };
 
 const abbreviateAccountId = (accountId) => {
-  if (!accountId) {
-    return "";
-  }
-  if (accountId.length <= 16) {
-    return accountId;
-  }
+  if (!accountId) return "";
+  if (accountId.length <= 16) return accountId;
   return `${accountId.slice(0, 6)}…${accountId.slice(-4)}`;
 };
 
@@ -159,14 +128,17 @@ function HomePage({ apiUrl }) {
   const [responseState, setResponseState] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dialogMessage, setDialogMessage] = useState(null);
+
   const [accountForm, setAccountForm] = useState(() => createInitialAccountForm());
   const [loginForm, setLoginForm] = useState({ accountId: "", password: "" });
   const [accountMessage, setAccountMessage] = useState(null);
   const [loggedInAccount, setLoggedInAccount] = useState(null);
   const [isAccountBusy, setIsAccountBusy] = useState(false);
+
   const [notificationThreshold, setNotificationThreshold] = useState(0.8);
   const [phoneNumber, setPhoneNumber] = useState("+15551234567");
   const [settingsMessage, setSettingsMessage] = useState(null);
+
   const [recentTransactions, setRecentTransactions] = useState([]);
   const [showAdvancedFields, setShowAdvancedFields] = useState(false);
   const [activeAccountView, setActiveAccountView] = useState("signin");
@@ -211,10 +183,9 @@ function HomePage({ apiUrl }) {
 
   const apiBase = useMemo(() => (apiUrl ? apiUrl.replace(/\/$/, "") : ""), [apiUrl]);
   const buildEndpoint = (path) => `${apiBase}${path}`;
+
   const overlayVisible = isSubmitting || isAccountBusy;
-  const overlayText = isSubmitting
-    ? "Sending transaction…"
-    : "Working on your request…";
+  const overlayText = isSubmitting ? "Sending transaction…" : "Working on your request…";
 
   const applyPreset = (id, builder) => {
     setFormData(builder());
@@ -225,10 +196,7 @@ function HomePage({ apiUrl }) {
   };
 
   const handleFieldChange = (key, newValue) => {
-    setFormData((prev) => ({
-      ...prev,
-      [key]: newValue,
-    }));
+    setFormData((prev) => ({ ...prev, [key]: newValue }));
     setActivePreset("custom");
   };
 
@@ -248,24 +216,19 @@ function HomePage({ apiUrl }) {
   };
 
   const handleAccountFieldChange = (key, newValue) => {
-    setAccountForm((prev) => ({
-      ...prev,
-      [key]: newValue,
-    }));
+    setAccountForm((prev) => ({ ...prev, [key]: newValue }));
   };
 
   const handleLoginFieldChange = (key, newValue) => {
-    setLoginForm((prev) => ({
-      ...prev,
-      [key]: newValue,
-    }));
+    setLoginForm((prev) => ({ ...prev, [key]: newValue }));
   };
 
   const ensureApiConfigured = (setter) => {
     if (!apiBase) {
       setter({
         type: "error",
-        text: "API URL not configured. Set REACT_APP_API_URL or REACT_APP_API_ID/REACT_APP_API_REGION.",
+        text:
+          "API URL not configured. Set REACT_APP_API_URL or REACT_APP_API_ID/REACT_APP_API_REGION.",
       });
       return false;
     }
@@ -274,6 +237,7 @@ function HomePage({ apiUrl }) {
 
   const createAccount = async () => {
     setAccountMessage(null);
+
     if (!accountForm.smsOptIn) {
       setAccountMessage({
         type: "error",
@@ -281,14 +245,14 @@ function HomePage({ apiUrl }) {
       });
       return;
     }
-    if (!ensureApiConfigured(setAccountMessage)) {
-      return;
-    }
+
+    if (!ensureApiConfigured(setAccountMessage)) return;
+
     setIsAccountBusy(true);
     try {
       const response = await axios.post(buildEndpoint("/accounts"), accountForm);
-      const { accountId } = response.data;
-      setLoggedInAccount({ accountId });
+      const { accountId, fraudThreshold } = response.data;
+      setLoggedInAccount({ accountId, fraudThreshold });
       setLoginForm({ accountId, password: "" });
       setActiveAccountView("signin");
       setAccountMessage({
@@ -298,10 +262,7 @@ function HomePage({ apiUrl }) {
       });
       setAccountForm(createInitialAccountForm());
     } catch (err) {
-      setAccountMessage({
-        type: "error",
-        text: extractErrorMessage(err),
-      });
+      setAccountMessage({ type: "error", text: extractErrorMessage(err) });
     } finally {
       setIsAccountBusy(false);
       setAccountForm((prev) => ({ ...prev, password: "" }));
@@ -310,14 +271,13 @@ function HomePage({ apiUrl }) {
 
   const loginAccount = async () => {
     setAccountMessage(null);
-    if (!ensureApiConfigured(setAccountMessage)) {
-      return;
-    }
+    if (!ensureApiConfigured(setAccountMessage)) return;
+
     setIsAccountBusy(true);
     try {
       const response = await axios.post(buildEndpoint("/login"), loginForm);
-      const { accountId } = response.data;
-      setLoggedInAccount({ accountId });
+      const { accountId, fraudThreshold } = response.data;
+      setLoggedInAccount({ accountId, fraudThreshold });
       setAccountMessage({
         type: "success",
         text: "Login successful. You can now submit transactions.",
@@ -325,10 +285,7 @@ function HomePage({ apiUrl }) {
       setSettingsMessage(null);
       setActiveAccountView("settings");
     } catch (err) {
-      setAccountMessage({
-        type: "error",
-        text: extractErrorMessage(err),
-      });
+      setAccountMessage({ type: "error", text: extractErrorMessage(err) });
     } finally {
       setIsAccountBusy(false);
       setLoginForm((prev) => ({ ...prev, password: "" }));
@@ -338,10 +295,7 @@ function HomePage({ apiUrl }) {
   const logout = () => {
     setLoggedInAccount(null);
     setSettingsMessage(null);
-    setAccountMessage({
-      type: "success",
-      text: "Signed out successfully.",
-    });
+    setAccountMessage({ type: "success", text: "Signed out successfully." });
     setActiveAccountView("signin");
   };
 
@@ -350,9 +304,7 @@ function HomePage({ apiUrl }) {
     setResponseState(null);
     setDialogMessage(null);
 
-    if (!ensureApiConfigured(setFormMessage)) {
-      return;
-    }
+    if (!ensureApiConfigured(setFormMessage)) return;
 
     if (!loggedInAccount) {
       setFormMessage({
@@ -370,7 +322,13 @@ function HomePage({ apiUrl }) {
       };
       const response = await axios.post(buildEndpoint("/transactions"), payload);
       const riskScore = extractRiskScoreFromResponse(response.data);
-      setResponseState({ type: "success", payload: response.data, riskScore });
+      const { smsSent } = response.data;
+      setResponseState({
+        type: "success",
+        payload: response.data,
+        riskScore,
+        smsSent,
+      });
       setRecentTransactions((prev) => {
         const entry = {
           id: Date.now().toString(),
@@ -460,13 +418,12 @@ function HomePage({ apiUrl }) {
 
         <div className="dashboard-columns">
           <div className="dashboard-main">
+            {/* Submit a Transaction */}
             <section className="panel transaction-panel">
               <div className="panel-header">
                 <div>
                   <h2>Submit a Transaction</h2>
-                  <p>
-                    Capture merchant details and evaluate the fraud risk in real time.
-                  </p>
+                  <p>Capture merchant details and evaluate the fraud risk in real time.</p>
                 </div>
                 <div className="preset-row">
                   <span>Quick fill:</span>
@@ -516,10 +473,40 @@ function HomePage({ apiUrl }) {
               )}
 
               {responseState && responseState.type === "success" && (
-                <StatusBanner variant="success" title="Prediction Response">
-                  <p>Review the model output below.</p>
-                  <pre>{JSON.stringify(responseState.payload, null, 2)}</pre>
-                </StatusBanner>
+                <>
+                  {responseState.smsSent !== undefined && (
+                    <StatusBanner
+                      variant={responseState.smsSent ? "info" : "success"}
+                      title={responseState.smsSent ? "SMS Alert Sent" : "No SMS Alert"}
+                    >
+                      {responseState.smsSent ? (
+                        <p>
+                          🔔 Fraud score{" "}
+                          <strong>{formatRiskScore(responseState.riskScore)}</strong> exceeds your
+                          threshold{" "}
+                          <strong>
+                            {loggedInAccount?.fraudThreshold?.toFixed(2) || "—"}
+                          </strong>
+                          . An SMS alert has been sent to your phone.
+                        </p>
+                      ) : (
+                        <p>
+                          ✓ Fraud score{" "}
+                          <strong>{formatRiskScore(responseState.riskScore)}</strong> is below your
+                          threshold{" "}
+                          <strong>
+                            {loggedInAccount?.fraudThreshold?.toFixed(2) || "—"}
+                          </strong>
+                          . No SMS alert needed.
+                        </p>
+                      )}
+                    </StatusBanner>
+                  )}
+                  <StatusBanner variant="success" title="Prediction Response">
+                    <p>Review the model output below.</p>
+                    <pre>{JSON.stringify(responseState.payload, null, 2)}</pre>
+                  </StatusBanner>
+                </>
               )}
 
               {responseState && responseState.type === "error" && (
@@ -580,6 +567,7 @@ function HomePage({ apiUrl }) {
               )}
             </section>
 
+            {/* Recent Transactions */}
             <section className="panel recent-panel">
               <div className="panel-header">
                 <h2>Recent Transactions</h2>
@@ -627,7 +615,9 @@ function HomePage({ apiUrl }) {
             </section>
           </div>
 
+          {/* Sidebar */}
           <aside className="dashboard-side">
+            {/* Account Settings */}
             <section className="panel settings-panel" id="account-settings">
               <div className="panel-header">
                 <h2>Account Settings</h2>
@@ -651,7 +641,8 @@ function HomePage({ apiUrl }) {
                   />
                 </div>
                 <p className="range-copy">
-                  You will receive notifications for transactions with a fraud rating above your selected threshold.
+                  You will receive notifications for transactions with a fraud rating above your
+                  selected threshold.
                 </p>
 
                 <label className="form-field compact">
@@ -678,6 +669,7 @@ function HomePage({ apiUrl }) {
                 </StatusBanner>
               )}
 
+              {/* Auth */}
               <div className="account-access">
                 <div className="account-access-header">
                   <h3>{loggedInAccount ? "Manage Access" : "Access Your Account"}</h3>
@@ -730,11 +722,7 @@ function HomePage({ apiUrl }) {
                       />
                     </label>
                     <div className="action-row">
-                      <button
-                        type="submit"
-                        className="primary-button"
-                        disabled={isAccountBusy}
-                      >
+                      <button type="submit" className="primary-button" disabled={isAccountBusy}>
                         {isAccountBusy ? "Signing In…" : "Sign In"}
                       </button>
                     </div>
@@ -779,15 +767,51 @@ function HomePage({ apiUrl }) {
                         onChange={(event) => handleAccountFieldChange("password", event.target.value)}
                       />
                     </label>
+                    <label className="form-field compact">
+                      <span>Phone Number</span>
+                      <input
+                        type="tel"
+                        value={accountForm.phoneNumber}
+                        onChange={(event) =>
+                          handleAccountFieldChange("phoneNumber", event.target.value)
+                        }
+                        placeholder="+15551234567"
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>Fraud Alert Threshold: {accountForm.fraudThreshold.toFixed(2)}</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={accountForm.fraudThreshold}
+                        onChange={(event) =>
+                          handleAccountFieldChange(
+                            "fraudThreshold",
+                            parseFloat(event.target.value)
+                          )
+                        }
+                      />
+                    </label>
+                    <p className="range-copy">
+                      You will receive SMS notifications for transactions with a fraud rating above{" "}
+                      {accountForm.fraudThreshold.toFixed(2)}.
+                    </p>
                     <label className="checkbox-field">
                       <input
                         type="checkbox"
                         checked={accountForm.smsOptIn}
-                        onChange={(event) => handleAccountFieldChange("smsOptIn", event.target.checked)}
+                        onChange={(event) =>
+                          handleAccountFieldChange("smsOptIn", event.target.checked)
+                        }
                         required
                       />
                       <span>
-                        I agree to receive SMS notifications related to fraud alerts for this demo account.
+                        I agree to receive SMS text messages from Capstone Fraud Detection to the
+                        phone number provided above. Message frequency varies based on transaction
+                        activity. Message and data rates may apply. Reply STOP to opt out at any
+                        time.
                       </span>
                     </label>
                     <div className="action-row">
@@ -815,6 +839,7 @@ function HomePage({ apiUrl }) {
               </div>
             </section>
 
+            {/* Info */}
             <section className="panel info-panel">
               <div className="panel-header">
                 <h2>How It Works</h2>
