@@ -3,22 +3,22 @@ const devs = [
   {
     name: "Tanush Shrivastava",
     title: "AWS Engineer",
-    image: "https://via.placeholder.com/160?text=Dev+1",
+    image: "/images/tanush-image.jpeg",
   },
   {
     name: "Daniel Hsiao",
     title: "AWS Engineer",
-    image: "https://via.placeholder.com/160?text=Dev+2",
+    image: "/images/daniel-image.jpeg",
   },
   {
     name: "Kavya Mathur",
     title: "UI Engineer",
-    image: "https://via.placeholder.com/160?text=Dev+3",
+    image: "/images/kavya-image.png",
   },
   {
     name: "Mohammad Janius",
     title: "Product Owner",
-    image: "https://via.placeholder.com/160?text=Dev+4",
+    image: "images/mo-image.jpeg",
   },
 ];
 
@@ -27,27 +27,27 @@ const mentors = [
   {
     name: "Peter Daly",
     title: "Capital One Mentor",
-    image: "https://via.placeholder.com/160?text=Mentor+1",
+    image: "images/peter-image.jpeg",
   },
   {
     name: "Nolan Smith",
     title: "Capital One Mentor",
-    image: "https://via.placeholder.com/160?text=Mentor+2",
+    image: "images/nolan-image.jpeg",
   },
   {
     name: "Tyler Luedtke",
     title: "Capital One Mentor",
-    image: "https://via.placeholder.com/160?text=Mentor+3",
+    image: "images/tyler-image.jpeg",
   },
   {
     name: "Jillian Genova",
     title: "Capital One Mentor",
-    image: "https://via.placeholder.com/160?text=Mentor+4",
+    image: "images/jillian-image.jpeg",
   },
   {
     name: "Garret Huibregtse",
     title: "Capital One Mentor",
-    image: "https://via.placeholder.com/160?text=Mentor+5",
+    image: "images/garret-image.jpeg",
   },
 ];
 
