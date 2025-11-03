@@ -1,7 +1,7 @@
 """End-to-end training script for the fraud detection classifier.
 
-The script loads the labelled transactions CSV, engineers features, trains a
-RandomForest pipeline, and packages the resulting artifacts for deployment.
+The script loads the labelled transactions CSV, engineers features, trains an
+XGBoost (XGBClassifier) pipeline, and packages the resulting artifacts for deployment.
 """
 
 import json
@@ -13,6 +13,15 @@ from typing import List
 import joblib
 import pandas as pd
 from sklearn.compose import ColumnTransformer
+try:
+    from xgboost import XGBClassifier
+except ModuleNotFoundError as e:
+    raise ModuleNotFoundError(
+        "xgboost is not installed. Please install it with:\n"
+        "  pip install xgboost==2.0.3\n"
+        "If you are on Apple Silicon and encounter build issues, upgrade pip and try again:\n"
+        "  pip install --upgrade pip setuptools wheel && pip install xgboost==2.0.3"
+    ) from e
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score, average_precision_score
 from sklearn.model_selection import train_test_split
@@ -35,11 +44,54 @@ def load_dataframe(csv_path: Path) -> pd.DataFrame:
 def build_pipeline(
     numeric_features: List[str],
     categorical_features: List[str],
+    *,
+    scale_pos_weight: float = 1.0,
 ) -> Pipeline:
     """Create a preprocessing + classifier pipeline used for both training/inference."""
     # Standardize numeric columns to zero mean / unit variance.
     numeric_transformer = Pipeline([("scaler", StandardScaler())])
     # One-hot encode categorical columns while ignoring unseen categories at inference.
+    categorical_transformer = Pipeline([
+        ("onehot", OneHotEncoder(handle_unknown="ignore"))
+    ])
+
+    preprocessor = ColumnTransformer(
+        [
+            ("num", numeric_transformer, numeric_features),
+            ("cat", categorical_transformer, categorical_features),
+        ]
+    )
+
+    return Pipeline(
+        [
+            ("preprocessor", preprocessor),
+            (
+                "classifier",
+                XGBClassifier(
+                    n_estimators=500,
+                    max_depth=6,
+                    learning_rate=0.1,
+                    subsample=0.8,
+                    colsample_bytree=0.8,
+                    reg_lambda=1.0,
+                    random_state=42,
+                    n_jobs=-1,
+                    tree_method="hist",
+                    eval_metric="logloss",
+                    scale_pos_weight=scale_pos_weight,
+                    use_label_encoder=False,
+                ),
+            ),
+        ]
+    )
+
+
+def build_rf_pipeline(
+    numeric_features: List[str],
+    categorical_features: List[str],
+) -> Pipeline:
+    """Create a preprocessing + RandomForest pipeline for comparison purposes."""
+    numeric_transformer = Pipeline([("scaler", StandardScaler())])
     categorical_transformer = Pipeline([
         ("onehot", OneHotEncoder(handle_unknown="ignore"))
     ])
@@ -149,15 +201,38 @@ def main() -> None:
     ]
     categorical_features = ["merchant", "category", "gender", "state", "job"]
 
-    pipeline = build_pipeline(numeric_features, categorical_features)
+    # Compute class imbalance weight for XGBoost
+    pos = float(y_train.sum())
+    neg = float(len(y_train) - y_train.sum())
+    scale_pos_weight = (neg / pos) if pos > 0 else 1.0
+
+    pipeline = build_pipeline(numeric_features, categorical_features, scale_pos_weight=scale_pos_weight)
 
     # Fit the end-to-end pipeline, including preprocessing, on the training split.
     pipeline.fit(X_train, y_train)
 
-    # Evaluate on the holdout period
+    # Evaluate XGBoost on the holdout period
     y_proba = pipeline.predict_proba(X_test)[:, 1]
     roc_auc = roc_auc_score(y_test, y_proba)
     pr_auc = average_precision_score(y_test, y_proba)
+
+    # Train and evaluate baseline RandomForest on same split for comparison
+    rf_pipeline = build_rf_pipeline(numeric_features, categorical_features)
+    rf_pipeline.fit(X_train, y_train)
+    rf_proba = rf_pipeline.predict_proba(X_test)[:, 1]
+    rf_roc_auc = roc_auc_score(y_test, rf_proba)
+    rf_pr_auc = average_precision_score(y_test, rf_proba)
+
+    # Determine winner by PR AUC (primary) then ROC AUC as tiebreaker
+    def _winner(xgb_pr, xgb_roc, rf_pr, rf_roc):
+        if abs(xgb_pr - rf_pr) > 1e-6:
+            return "xgboost" if xgb_pr > rf_pr else "random_forest"
+        # tie on PR AUC, use ROC AUC
+        if abs(xgb_roc - rf_roc) > 1e-6:
+            return "xgboost" if xgb_roc > rf_roc else "random_forest"
+        return "tie"
+
+    winner = _winner(pr_auc, roc_auc, rf_pr_auc, rf_roc_auc)
 
     metrics = {
         "roc_auc": float(roc_auc),
@@ -167,16 +242,43 @@ def main() -> None:
         "n_train": int(len(y_train)),
         "n_test": int(len(y_test)),
         "cutoff_time": cutoff_time.isoformat(),
-        "model": "RandomForestClassifier",
+        "model": "XGBClassifier",
         "model_params": {
-            "n_estimators": 300,
-            "class_weight": "balanced_subsample",
+            "n_estimators": 500,
+            "max_depth": 6,
+            "learning_rate": 0.1,
+            "subsample": 0.8,
+            "colsample_bytree": 0.8,
+            "reg_lambda": 1.0,
             "random_state": 42,
-            "min_samples_leaf": 2,
+            "tree_method": "hist",
+            "eval_metric": "logloss",
+            "scale_pos_weight": float(scale_pos_weight),
+        },
+        "comparison": {
+            "random_forest": {
+                "roc_auc": float(rf_roc_auc),
+                "pr_auc": float(rf_pr_auc),
+                "model": "RandomForestClassifier",
+                "model_params": {
+                    "n_estimators": 300,
+                    "class_weight": "balanced_subsample",
+                    "random_state": 42,
+                    "min_samples_leaf": 2,
+                },
+            },
+            "xgboost": {
+                "roc_auc": float(roc_auc),
+                "pr_auc": float(pr_auc),
+                "model": "XGBClassifier",
+            },
+            "winner": winner,
+            "selection_metric": "pr_auc_then_roc_auc",
         },
     }
 
     print("Validation metrics:", json.dumps(metrics, indent=2))
+    print(f"Comparison: XGBoost PR AUC={pr_auc:.4f}, ROC AUC={roc_auc:.4f} | RandomForest PR AUC={rf_pr_auc:.4f}, ROC AUC={rf_roc_auc:.4f} | Winner: {winner}")
 
     stack_name = get_backend_stack_name()
     # Persist artifacts to the stack-specific directory used by the CDK deployment.

@@ -27,7 +27,7 @@ cd model
 python -m venv .venv
 source .venv/bin/activate            # On Windows use: .venv\Scripts\activate
 pip install --upgrade pip setuptools
-pip install numpy==1.26.4 pandas==2.2.2 scikit-learn==1.2.2 joblib==1.3.2
+pip install numpy==1.26.4 pandas==2.2.2 scikit-learn==1.2.2 joblib==1.3.2 xgboost==2.0.3
 python train.py                      # Reads fraudTrain.csv and writes artifacts/model.tar.gz for your stack
 ```
 
