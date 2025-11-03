@@ -31,8 +31,7 @@ const heroCopy = {
   home: {
     title: "Fraud Detection Demo",
     subtitle:
-      "Craft a transaction payload, preview the JSON, and send it to your backend in one place.",
-  },
+      "Credit Card Fraud Detection using Machine Learning on AWS.",},
   about: {
     title: "About the Collaboration",
     subtitle:
@@ -92,7 +91,6 @@ function App() {
       <HeroSection
         title={selectedHero.title}
         subtitle={selectedHero.subtitle}
-        chip={selectedHero.chip}
       />
 
       {renderContent()}

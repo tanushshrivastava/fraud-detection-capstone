@@ -4,10 +4,7 @@ on:
   workflow_dispatch:  # still allows manual runs
   push:
     branches: [ main ]
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/deploy-frontend.yml'  # optional: re-run if workflow file itself changes
-
+    
 jobs:
   deploy-frontend:
     runs-on: ubuntu-latest
