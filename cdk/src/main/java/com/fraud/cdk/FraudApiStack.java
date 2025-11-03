@@ -8,7 +8,9 @@ import software.amazon.awscdk.Stack;
 import software.amazon.awscdk.StackProps;
 import software.amazon.awscdk.services.apigateway.Cors;
 import software.amazon.awscdk.services.apigateway.CorsOptions;
-import software.amazon.awscdk.services.apigateway.LambdaRestApi;
+import software.amazon.awscdk.services.apigateway.LambdaIntegration;
+import software.amazon.awscdk.services.apigateway.RestApi;
+import software.amazon.awscdk.services.apigateway.Resource;
 import software.amazon.awscdk.services.lambda.Function;
 import software.constructs.Construct;
 
@@ -16,30 +18,83 @@ import software.constructs.Construct;
  * Exposes the fraud detection Lambda through an API Gateway with permissive CORS defaults.
  */
 public class FraudApiStack extends Stack {
-    private final LambdaRestApi api;
+    private final RestApi api;
 
-    public FraudApiStack(final Construct scope, final String id, final BackendEnvironment env, final Function handler) {
-        this(scope, id, null, env, handler);
+    public FraudApiStack(
+            final Construct scope,
+            final String id,
+            final BackendEnvironment env,
+            final Function createAccountHandler,
+            final Function loginHandler,
+            final Function updateAccountSettingsHandler,
+            final Function getRecentTransactionsHandler,
+            final Function submitTransactionHandler,
+            final Function twilioWebhookHandler) {
+        this(
+            scope,
+            id,
+            null,
+            env,
+            createAccountHandler,
+            loginHandler,
+            updateAccountSettingsHandler,
+            getRecentTransactionsHandler,
+            submitTransactionHandler,
+            twilioWebhookHandler);
     }
 
-    public FraudApiStack(final Construct scope, final String id, final StackProps props, final BackendEnvironment env, final Function handler) {
+    public FraudApiStack(
+            final Construct scope,
+            final String id,
+            final StackProps props,
+            final BackendEnvironment env,
+            final Function createAccountHandler,
+            final Function loginHandler,
+            final Function updateAccountSettingsHandler,
+            final Function getRecentTransactionsHandler,
+            final Function submitTransactionHandler,
+            final Function twilioWebhookHandler) {
         super(scope, id, props);
-        Objects.requireNonNull(handler, "handler is required");
+        Objects.requireNonNull(createAccountHandler, "createAccountHandler is required");
+        Objects.requireNonNull(loginHandler, "loginHandler is required");
+        Objects.requireNonNull(updateAccountSettingsHandler, "updateAccountSettingsHandler is required");
+        Objects.requireNonNull(getRecentTransactionsHandler, "getRecentTransactionsHandler is required");
+        Objects.requireNonNull(submitTransactionHandler, "submitTransactionHandler is required");
+        Objects.requireNonNull(twilioWebhookHandler, "twilioWebhookHandler is required");
 
         String restApiName = env.stackSuffix().isBlank()
             ? "FraudDetectionApi"
             : String.format("FraudDetectionApi-%s", env.stackSuffix());
 
-        this.api = LambdaRestApi.Builder.create(this, "FraudApi")
+        this.api = RestApi.Builder.create(this, "FraudApi")
             .restApiName(restApiName)
-            .handler(handler)
-            .proxy(true)
             .defaultCorsPreflightOptions(CorsOptions.builder()
                 .allowOrigins(Cors.ALL_ORIGINS)
                 .allowMethods(Cors.ALL_METHODS)
                 .allowHeaders(List.of("*"))
                 .build())
             .build();
+
+        Resource accounts = api.getRoot().addResource("accounts");
+        accounts.addMethod("POST", new LambdaIntegration(createAccountHandler));
+
+        Resource login = api.getRoot().addResource("login");
+        login.addMethod("POST", new LambdaIntegration(loginHandler));
+
+        Resource accountSettings = accounts.addResource("settings");
+        accountSettings.addMethod("PUT", new LambdaIntegration(updateAccountSettingsHandler));
+        accountSettings.addMethod("PATCH", new LambdaIntegration(updateAccountSettingsHandler));
+
+        Resource accountId = accounts.addResource("{accountId}");
+        Resource transactionsForAccount = accountId.addResource("transactions");
+        transactionsForAccount.addMethod("GET", new LambdaIntegration(getRecentTransactionsHandler));
+
+        Resource transactions = api.getRoot().addResource("transactions");
+        transactions.addMethod("POST", new LambdaIntegration(submitTransactionHandler));
+
+        Resource webhook = api.getRoot().addResource("webhook");
+        Resource twilio = webhook.addResource("twilio");
+        twilio.addMethod("POST", new LambdaIntegration(twilioWebhookHandler));
 
         CfnOutput.Builder.create(this, "ApiEndpoint")
             .value(api.getUrl())
@@ -52,7 +107,7 @@ public class FraudApiStack extends Stack {
     }
 
     /** @return The API Gateway resource so other stacks can grant permissions. */
-    public LambdaRestApi getApi() {
+    public RestApi getApi() {
         return api;
     }
 }

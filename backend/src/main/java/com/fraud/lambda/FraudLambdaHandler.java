@@ -39,7 +39,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
+public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String DEFAULT_ENDPOINT_NAME = "fraud-detector-endpoint";
     private static final String ENDPOINT_NAME = Optional
@@ -52,7 +52,7 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
     private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
 
     @Override
-    public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent event, Context context) {
+    public final APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent event, Context context) {
         APIGatewayProxyResponseEvent response = new APIGatewayProxyResponseEvent();
         response.setHeaders(buildCorsHeaders());
 
@@ -69,24 +69,7 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         }
 
         try {
-            if ("POST".equals(method) && "/accounts".equals(path)) {
-                return handleCreateAccount(event, context, response);
-            } else if ("POST".equals(method) && "/login".equals(path)) {
-                return handleLogin(event, context, response);
-            } else if (("PUT".equals(method) || "PATCH".equals(method)) && "/accounts/settings".equals(path)) {
-                return handleUpdateAccountSettings(event, context, response);
-            } else if ("GET".equals(method) && path.startsWith("/accounts/") && path.endsWith("/transactions")) {
-                String accountId = extractAccountIdFromTransactionsPath(path);
-                if (accountId != null && !accountId.isBlank()) {
-                    return handleGetRecentTransactions(accountId, event, context, response);
-                }
-                return setResponse(response, 404, "{\"error\":\"Account not specified\"}");
-            } else if ("POST".equals(method) && ("/transactions".equals(path) || "/".equals(path))) {
-                return handleTransaction(event, context, response);
-            } else if ("POST".equals(method) && "/webhook/twilio".equals(path)) { // NEW webhook path
-                return handleTwilioWebhook(event, context, response);
-            }
-            return setResponse(response, 404, "{\"error\":\"Resource not found\"}");
+            return doHandle(event, context, response);
         } catch (BadRequestException e) {
             context.getLogger().log("Bad request: " + e.getMessage());
             return setResponse(response, 400, "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}");
@@ -99,7 +82,15 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         }
     }
 
-    private APIGatewayProxyResponseEvent handleCreateAccount(
+    /**
+     * Template method implemented by concrete handlers to process the request.
+     */
+    protected abstract APIGatewayProxyResponseEvent doHandle(
+            APIGatewayProxyRequestEvent event,
+            Context context,
+            APIGatewayProxyResponseEvent baseResponse) throws Exception;
+
+    protected APIGatewayProxyResponseEvent handleCreateAccount(
             APIGatewayProxyRequestEvent event,
             Context context,
             APIGatewayProxyResponseEvent baseResponse) throws Exception {
@@ -158,7 +149,7 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         return setResponse(baseResponse, 201, toJson(responseBody));
     }
 
-    private APIGatewayProxyResponseEvent handleLogin(
+    protected APIGatewayProxyResponseEvent handleLogin(
             APIGatewayProxyRequestEvent event,
             Context context,
             APIGatewayProxyResponseEvent baseResponse) throws Exception {
@@ -237,7 +228,7 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         return setResponse(baseResponse, 200, toJson(responseBody));
     }
 
-    private APIGatewayProxyResponseEvent handleUpdateAccountSettings(
+    protected APIGatewayProxyResponseEvent handleUpdateAccountSettings(
             APIGatewayProxyRequestEvent event,
             Context context,
             APIGatewayProxyResponseEvent baseResponse) throws Exception {
@@ -299,7 +290,7 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         return setResponse(baseResponse, 200, toJson(responseBody));
     }
 
-    private APIGatewayProxyResponseEvent handleGetRecentTransactions(
+    protected APIGatewayProxyResponseEvent handleGetRecentTransactions(
             String accountId,
             APIGatewayProxyRequestEvent event,
             Context context,
@@ -321,7 +312,7 @@ public class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequest
         return setResponse(baseResponse, 200, toJson(responseBody));
     }
 
-    private APIGatewayProxyResponseEvent handleTransaction(
+    protected APIGatewayProxyResponseEvent handleTransaction(
             APIGatewayProxyRequestEvent event,
             Context context,
             APIGatewayProxyResponseEvent baseResponse) throws Exception {
@@ -540,7 +531,7 @@ private PersistedTransaction persistTransaction(String accountId, JsonNode trans
 
     // NEW METHOD: Twilio Webhook Handler
     // TODO: Revise after getting approved by Twilio
-    private APIGatewayProxyResponseEvent handleTwilioWebhook(
+    protected APIGatewayProxyResponseEvent handleTwilioWebhook(
             APIGatewayProxyRequestEvent event,
             Context context,
             APIGatewayProxyResponseEvent baseResponse) throws Exception {
@@ -640,7 +631,7 @@ private PersistedTransaction persistTransaction(String accountId, JsonNode trans
         return text != null ? text.trim() : null;
     }
 
-    private String normalizePath(APIGatewayProxyRequestEvent event) {
+    protected String normalizePath(APIGatewayProxyRequestEvent event) {
         String path = Optional.ofNullable(event.getPath()).orElse("/");
         if (!path.startsWith("/")) {
             path = "/" + path;
@@ -661,7 +652,7 @@ private PersistedTransaction persistTransaction(String accountId, JsonNode trans
         return path;
     }
 
-    private String extractAccountIdFromTransactionsPath(String path) {
+    protected String extractAccountIdFromTransactionsPath(String path) {
         if (path == null) {
             return null;
         }
@@ -681,6 +672,20 @@ private PersistedTransaction persistTransaction(String accountId, JsonNode trans
         return inner;
     }
 
+    protected String getNormalizedMethod(APIGatewayProxyRequestEvent event) {
+        return Optional.ofNullable(event.getHttpMethod()).orElse("").toUpperCase();
+    }
+
+    protected String resolveAccountId(APIGatewayProxyRequestEvent event) {
+        if (event != null && event.getPathParameters() != null) {
+            String accountId = event.getPathParameters().get("accountId");
+            if (accountId != null && !accountId.isBlank()) {
+                return accountId;
+            }
+        }
+        return extractAccountIdFromTransactionsPath(normalizePath(event));
+    }
+
     private Map<String, String> buildCorsHeaders() {
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
@@ -690,7 +695,7 @@ private PersistedTransaction persistTransaction(String accountId, JsonNode trans
         return headers;
     }
 
-    private APIGatewayProxyResponseEvent setResponse(APIGatewayProxyResponseEvent response, int statusCode,
+    protected APIGatewayProxyResponseEvent setResponse(APIGatewayProxyResponseEvent response, int statusCode,
             String body) {
         response.setStatusCode(statusCode);
         response.setBody(body);

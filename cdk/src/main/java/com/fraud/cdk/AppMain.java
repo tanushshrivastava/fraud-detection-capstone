@@ -65,7 +65,12 @@ public class AppMain {
             appendSuffix("FraudApiStack", suffix),
             stackProps,
             backendEnv,
-            lambdaStack.getFraudLambda()
+            lambdaStack.getCreateAccountFunction(),
+            lambdaStack.getLoginFunction(),
+            lambdaStack.getUpdateAccountSettingsFunction(),
+            lambdaStack.getGetRecentTransactionsFunction(),
+            lambdaStack.getSubmitTransactionFunction(),
+            lambdaStack.getTwilioWebhookFunction()
         );
 
         // Express dependencies so CDK deploys stacks in the correct order.
