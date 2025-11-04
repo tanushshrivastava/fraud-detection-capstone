@@ -36,6 +36,7 @@ jobs:
 
       - name: Build frontend
         env:
+          REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
           REACT_APP_API_ID: ${{ secrets.REACT_APP_API_ID }}
           REACT_APP_API_REGION: ${{ secrets.REACT_APP_API_REGION }}
           REACT_APP_API_STAGE: ${{ secrets.REACT_APP_API_STAGE }}

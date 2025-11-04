@@ -6,6 +6,7 @@
 .venv/
 .vscode/
 .idea/
+.github/workflows/*
 
 # -----------------------------
 # Python (model/)

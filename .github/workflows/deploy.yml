@@ -48,6 +48,7 @@ jobs:
 
       - name: Deploy CDK
         env:
+          REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
           STACK_SUFFIX: ${{ secrets.STACK_SUFFIX || '' }}
