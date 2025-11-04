@@ -1,74 +1,69 @@
-.idea/
-backend/.idea/
-backend/build/
-backend/target/
-backend/lib/
-backend/temp/
-backend/tmp/
-cdk/.gradle/
-cdk/bin/
-cdk/build/
-cdk/cdk.out/
+# -----------------------------
+# Global ignores
+# -----------------------------
+.DS_Store
+.env
 .venv/
 .vscode/
-model/model.joblib
-.DS_Store
-backend/build/reports/problems/problems-report.html
-cdk/build/tmp/compileJava/previous-compilation-data.bin
-model/fraudTest.csv
-model/fraudTrain.csv
-model/artifacts/FraudBackendStack-Tanush/model.joblib
-backend/build/tmp/buildLambda/MANIFEST.MF
-backend/build/scripts/backend.bat
-cdk/build/tmp/compileJava/previous-compilation-data.bin
-backend/build/tmp/compileJava/previous-compilation-data.bin
-.env
-./.env
-.venv
-/backend/build/classes/java/main/com/fraud/lambda/FraudLambdaHandler$BadRequestException.class
-/backend/build/classes/java/main/com/fraud/lambda/FraudLambdaHandler$UnauthorizedException.class
-/backend/build/classes/java/main/com/fraud/lambda/FraudLambdaHandler/*.class
-/backend/build/classes/java/main/com/fraud/lambda/FraudLambdaHandler/FraudLambdaHandler.class
+.idea/
 
-
-*.class
-/cdk/gradlew
-/cdk/gradlew.bat
-CLAUDE.md
-*.class
-/cdk/bin/main/com/fraud/cdk/*.class
-*.class
-
-
-
-model/./fraudTest.csv
-model/venv/
-modle/python-version
+# -----------------------------
+# Python (model/)
+# -----------------------------
 model/__pycache__/
+model/venv/
 model/artifacts/
+model/*.csv
+model/*.joblib
+model/.python-version
 
+# -----------------------------
+# Java / Gradle (backend/)
+# -----------------------------
+backend/.idea/
+backend/.gradle/
+backend/gradle/
+backend/temp/
+backend/tmp/
+backend/target/
+backend/build/
+!backend/build/libs/
+!backend/build/libs/fraud-backend.jar   # ✅ keep only this JAR tracked
 
-cdk/cdk.out
-cdk/cdk.out/
-cdk/cdk.out
+backend/lib/
+backend/cdk.out/
+backend/gradlew
+backend/gradlew.bat
+
+# -----------------------------
+# CDK (Infrastructure)
+# -----------------------------
 cdk/.gradle/
 cdk/build/
 cdk/bin/
-cdk/build/
+cdk/cdk.out/
 cdk/gradle/
-.idea
-.idea/
-.idea/*
+cdk/gradlew
+cdk/gradlew.bat
 
+# -----------------------------
+# Frontend (React / Expo)
+# -----------------------------
+frontend/node_modules/
+frontend/dist/
+frontend/.expo/
+frontend/.expo-shared/
+frontend/web-build/
+frontend/build/
+frontend/.DS_Store
 
-backend/.gradle/
-backend/bin/
-backend/gradle/
-backend/gradlew
-backend/gradlew.bat
-backend/cdk.out/
-backend/build/tmp/
-backend/build/
-backend/target/
-backend/target
-
+# -----------------------------
+# Miscellaneous / Logs
+# -----------------------------
+*.log
+*.tmp
+*.class
+*.bak
+*.swp
+*.iml
+CLAUDE.md
