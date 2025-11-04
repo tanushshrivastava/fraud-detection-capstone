@@ -1,20 +1,22 @@
 name: Deploy CDK (Backend)
 
 on:
-  workflow_run:
-    workflows: ["Deploy Frontend"]
-    types: [completed]
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -30,7 +32,7 @@ jobs:
       - name: Install AWS CDK CLI
         run: npm install -g aws-cdk@2
 
-      - name: Build Lambda package
+      - name: Build backend Lambda package
         run: |
           cd backend
           if [ -f gradlew ]; then
@@ -40,19 +42,13 @@ jobs:
             gradle buildLambda
           fi
 
-      - name: Build frontend
-        run: |
-          cd frontend
-          npm ci
-          npm run export
-
-      - name: Deploy CDK
+      - name: Deploy CDK backend stacks
         env:
-          REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
           STACK_SUFFIX: ${{ secrets.STACK_SUFFIX || '' }}
           MODEL_OBJECT_KEY: ${{ secrets.MODEL_OBJECT_KEY || '' }}
         run: |
           cd cdk
+          echo "Deploying backend/CDK stacks..."
           cdk deploy --all --require-approval never
