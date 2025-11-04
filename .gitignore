@@ -28,7 +28,7 @@ backend/tmp/
 backend/target/
 backend/build/
 !backend/build/libs/
-!backend/build/libs/fraud-backend.jar   # ✅ keep only this JAR tracked
+!backend/build/libs/fraud-backend.jar
 
 backend/lib/
 backend/cdk.out/
