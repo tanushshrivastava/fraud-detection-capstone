@@ -45,7 +45,7 @@ jobs:
           echo "Front-end build using API https://${REACT_APP_API_ID}.execute-api.${REACT_APP_API_REGION}.amazonaws.com/${REACT_APP_API_STAGE}"
           echo "Deploying with account ${AWS_ACCOUNT_ID}"
           npm ci
-          npm run build
+          npm run export
         # Create the production build artifact and surface which API it targets.
 
       - name: Deploy frontend stack

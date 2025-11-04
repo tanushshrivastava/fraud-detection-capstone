@@ -27,3 +27,5 @@ backend/build/tmp/compileJava/previous-compilation-data.bin
 /.idea/vcs.xml
 .github/
 CLAUDE.md
+*.class
+/cdk/bin/main/com/fraud/cdk/*.class

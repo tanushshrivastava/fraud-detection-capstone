@@ -127,7 +127,7 @@ The CDK app synthesises four stacks: endpoint (SageMaker), data (DynamoDB), lamb
 
 ### 6. Update Frontend Configuration
 After `cdk deploy`, note the `ApiEndpoint` output or the REST API ID. Populate the frontend environment variables (already sourced from `.env`) with the new values:
-
+ 
 ```dotenv
 REACT_APP_API_ID=<rest-api-id-from-cdk>
 REACT_APP_API_REGION=<region>
@@ -139,7 +139,7 @@ Rebuild if you plan to host the SPA or want to run the optimized bundle locally:
 
 ```bash
 cd frontend
-npm run build
+npm run export
 ```
 
 ### 7. Smoke Test
@@ -252,7 +252,7 @@ jobs:
         run: |
           cd frontend
           npm ci
-          npm run build
+          npm run export
 
       - name: Deploy CDK
         env:

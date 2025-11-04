@@ -69,20 +69,7 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
         }
 
         try {
-<<<<<<< HEAD
-            if ("POST".equals(method) && "/accounts".equals(path)) {
-                return handleCreateAccount(event, context, response);
-            } else if ("POST".equals(method) && "/login".equals(path)) {
-                return handleLogin(event, context, response);
-            } else if ("POST".equals(method) && ("/transactions".equals(path) || "/".equals(path))) {
-                return handleTransaction(event, context, response);
-            } else if ("POST".equals(method) && "/webhook/twilio".equals(path)) { // NEW webhook path
-                return handleTwilioWebhook(event, context, response);
-            }
-            return setResponse(response, 404, "{\"error\":\"Resource not found\"}");
-=======
             return doHandle(event, context, response);
->>>>>>> Tanush
         } catch (BadRequestException e) {
             context.getLogger().log("Bad request: " + e.getMessage());
             return setResponse(response, 400, "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}");
@@ -95,9 +82,6 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
         }
     }
 
-<<<<<<< HEAD
-    private APIGatewayProxyResponseEvent handleCreateAccount(
-=======
     /**
      * Template method implemented by concrete handlers to process the request.
      */
@@ -107,7 +91,6 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
             APIGatewayProxyResponseEvent baseResponse) throws Exception;
 
     protected APIGatewayProxyResponseEvent handleCreateAccount(
->>>>>>> Tanush
             APIGatewayProxyRequestEvent event,
             Context context,
             APIGatewayProxyResponseEvent baseResponse) throws Exception {
@@ -120,16 +103,6 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
         String email = requireText(body, "email");
         String address = requireText(body, "address");
         String password = requireText(body, "password");
-<<<<<<< HEAD
-        String phoneNumber = requireText(body, "phoneNumber"); // NEW
-        boolean smsOptIn = requireBoolean(body, "smsOptIn");
-        if (!smsOptIn) {
-            throw new BadRequestException("SMS opt-in must be accepted to create an account");
-        }
-
-        // NEW: Add optional fraud threshold (default to 0.7)
-=======
->>>>>>> Tanush
         double fraudThreshold = 0.7;
         if (body.has("fraudThreshold") && body.get("fraudThreshold").isNumber()) {
             fraudThreshold = body.get("fraudThreshold").asDouble();
@@ -137,10 +110,7 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
                 throw new BadRequestException("Fraud threshold must be between 0 and 1");
             }
         }
-<<<<<<< HEAD
-=======
         String phoneNumber = Optional.ofNullable(optionalText(body, "phoneNumber")).orElse("");
->>>>>>> Tanush
 
         String accountId = UUID.randomUUID().toString();
         String salt = UUID.randomUUID().toString();
@@ -153,15 +123,6 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
         item.put("username", AttributeValue.builder().s(username).build());
         item.put("email", AttributeValue.builder().s(email).build());
         item.put("address", AttributeValue.builder().s(address).build());
-<<<<<<< HEAD
-        item.put("needs", AttributeValue.builder().s(needs).build());
-        item.put("phoneNumber", AttributeValue.builder().s(phoneNumber).build()); // NEW
-        item.put("fraudThreshold", AttributeValue.builder().n(String.valueOf(fraudThreshold)).build()); // NEW
-        item.put("passwordHash", AttributeValue.builder().s(passwordHash).build());
-        item.put("passwordSalt", AttributeValue.builder().s(salt).build());
-        item.put("smsOptIn", AttributeValue.builder().bool(true).build());
-        item.put("smsOptIn", AttributeValue.builder().bool(true).build());
-=======
         item.put("phoneNumber", AttributeValue.builder().s(phoneNumber).build());
         item.put("fraudThreshold", AttributeValue.builder().n(String.valueOf(fraudThreshold)).build());
         if (geocode != null) {
@@ -171,7 +132,6 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
         item.put("passwordHash", AttributeValue.builder().s(passwordHash).build());
         item.put("passwordSalt", AttributeValue.builder().s(salt).build());
         item.put("smsOptIn", AttributeValue.builder().bool(false).build());
->>>>>>> Tanush
         item.put("createdAt", AttributeValue.builder().s(Instant.now().toString()).build());
 
         try (DynamoDbClient dynamoDb = DynamoDbClient.create()) {
@@ -185,18 +145,11 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
         Map<String, Object> responseBody = new HashMap<>();
         responseBody.put("accountId", accountId);
         responseBody.put("fraudThreshold", fraudThreshold);
-<<<<<<< HEAD
-        return setResponse(baseResponse, 201, toJson(responseBody));
-    }
-
-    private APIGatewayProxyResponseEvent handleLogin(
-=======
         responseBody.put("phoneNumber", phoneNumber);
         return setResponse(baseResponse, 201, toJson(responseBody));
     }
 
     protected APIGatewayProxyResponseEvent handleLogin(
->>>>>>> Tanush
             APIGatewayProxyRequestEvent event,
             Context context,
             APIGatewayProxyResponseEvent baseResponse) throws Exception {
@@ -209,22 +162,10 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
         String providedUsername = optionalText(body, "username");
         String password = requireText(body, "password");
 
-<<<<<<< HEAD
-        Map<String, AttributeValue> key = Map.of(
-                "accountId", AttributeValue.builder().s(accountId).build());
-=======
         String accountId = null;
         Map<String, AttributeValue> item = null;
->>>>>>> Tanush
 
         try (DynamoDbClient dynamoDb = DynamoDbClient.create()) {
-<<<<<<< HEAD
-            item = dynamoDb.getItem(GetItemRequest.builder()
-                    .tableName(ACCOUNTS_TABLE_NAME)
-                    .key(key)
-                    .consistentRead(true)
-                    .build()).item();
-=======
             if (providedAccountId != null && !providedAccountId.isBlank()) {
                 accountId = providedAccountId;
                 Map<String, AttributeValue> key = Map.of(
@@ -250,7 +191,6 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
             } else {
                 throw new BadRequestException("Either 'username' or 'accountId' is required");
             }
->>>>>>> Tanush
         }
 
         if (item == null || item.isEmpty()) {
@@ -272,30 +212,16 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
             throw new UnauthorizedException("Invalid credentials");
         }
 
-<<<<<<< HEAD
-        // Get fraud threshold from account
-        double fraudThreshold = 0.7; // default
-        if (item.containsKey("fraudThreshold") && item.get("fraudThreshold").n() != null) {
-            fraudThreshold = Double.parseDouble(item.get("fraudThreshold").n());
-        }
-=======
         double fraudThreshold = extractNumeric(item, "fraudThreshold", 0.7);
         String phoneNumber = item.containsKey("phoneNumber") ? item.get("phoneNumber").s() : "";
         String username = item.containsKey("username") ? item.get("username").s() : "";
 
         List<Map<String, Object>> recentTransactions = fetchRecentTransactions(accountId, 10);
->>>>>>> Tanush
 
         Map<String, Object> responseBody = new HashMap<>();
         responseBody.put("message", "Login successful");
         responseBody.put("accountId", accountId);
         responseBody.put("fraudThreshold", fraudThreshold);
-<<<<<<< HEAD
-        return setResponse(baseResponse, 200, toJson(responseBody));
-    }
-
-    private APIGatewayProxyResponseEvent handleTransaction(
-=======
         responseBody.put("phoneNumber", phoneNumber);
         responseBody.put("username", username);
         responseBody.put("recentTransactions", recentTransactions);
@@ -387,7 +313,6 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
     }
 
     protected APIGatewayProxyResponseEvent handleTransaction(
->>>>>>> Tanush
             APIGatewayProxyRequestEvent event,
             Context context,
             APIGatewayProxyResponseEvent baseResponse) throws Exception {
@@ -435,20 +360,6 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
         } catch (Exception e) {
             context.getLogger().log("Failed to extract fraud score: " + e.getMessage());
         }
-<<<<<<< HEAD
-        String transactionId = persistTransaction(accountId, transactionNode, result, context);
-
-        // NEW: Check if we should send SMS alert
-        boolean smsSent = false;
-        double fraudThreshold = 0.7; // default
-        if (TwilioService.isConfigured()) {
-            try {
-                fraudThreshold = Double.parseDouble(
-                        account.getOrDefault("fraudThreshold", AttributeValue.builder().n("0.7").build()).n());
-
-                if (fraudScore >= fraudThreshold) {
-                    String phoneNumber = account.get("phoneNumber").s();
-=======
         PersistedTransaction persisted = persistTransaction(accountId, transactionNode, result, context);
         String transactionId = persisted.id();
 
@@ -460,7 +371,6 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
             try {
                 String phoneNumber = account.containsKey("phoneNumber") ? account.get("phoneNumber").s() : "";
                 if (fraudScore >= fraudThreshold && phoneNumber != null && !phoneNumber.isBlank()) {
->>>>>>> Tanush
                     String amount = extractAmount(transactionNode);
                     String location = extractLocation(transactionNode);
 
@@ -507,15 +417,12 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
         responseBody.put("smsSent", smsSent);
         responseBody.put("fraudScore", fraudScore);
         responseBody.put("fraudThreshold", fraudThreshold);
-<<<<<<< HEAD
-=======
         responseBody.put("transactionSummary", buildTransactionSummary(
                 transactionId,
                 persisted.createdAt(),
                 transactionNode,
                 result,
                 fraudScore));
->>>>>>> Tanush
         return setResponse(baseResponse, 200, toJson(responseBody));
     }
 
@@ -596,14 +503,6 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
     }
 
     // UPDATED: persistTransaction() to return transaction ID
-<<<<<<< HEAD
-    private String persistTransaction(String accountId, JsonNode transactionNode, String prediction, Context context) {
-        if (TRANSACTIONS_TABLE_NAME == null || TRANSACTIONS_TABLE_NAME.isBlank()) {
-            return UUID.randomUUID().toString(); // Return ID even if we don't persist
-        }
-
-        String transactionId = UUID.randomUUID().toString();
-=======
 private PersistedTransaction persistTransaction(String accountId, JsonNode transactionNode, String prediction, Context context) {
         if (TRANSACTIONS_TABLE_NAME == null || TRANSACTIONS_TABLE_NAME.isBlank()) {
             return new PersistedTransaction(UUID.randomUUID().toString(), Instant.now().toString());
@@ -611,7 +510,6 @@ private PersistedTransaction persistTransaction(String accountId, JsonNode trans
 
         String transactionId = UUID.randomUUID().toString();
         String createdAt = Instant.now().toString();
->>>>>>> Tanush
         Map<String, AttributeValue> item = new HashMap<>();
         item.put("id", AttributeValue.builder().s(transactionId).build());
         item.put("accountId", AttributeValue.builder().s(accountId).build());
@@ -628,20 +526,12 @@ private PersistedTransaction persistTransaction(String accountId, JsonNode trans
             context.getLogger().log("Failed to persist transaction: " + e.getMessage());
         }
 
-<<<<<<< HEAD
-        return transactionId;
-=======
         return new PersistedTransaction(transactionId, createdAt);
->>>>>>> Tanush
     }
 
     // NEW METHOD: Twilio Webhook Handler
     // TODO: Revise after getting approved by Twilio
-<<<<<<< HEAD
-    private APIGatewayProxyResponseEvent handleTwilioWebhook(
-=======
     protected APIGatewayProxyResponseEvent handleTwilioWebhook(
->>>>>>> Tanush
             APIGatewayProxyRequestEvent event,
             Context context,
             APIGatewayProxyResponseEvent baseResponse) throws Exception {
@@ -733,20 +623,6 @@ private PersistedTransaction persistTransaction(String accountId, JsonNode trans
         return text;
     }
 
-<<<<<<< HEAD
-    private boolean requireBoolean(JsonNode node, String fieldName) {
-        if (node == null || !node.has(fieldName) || node.get(fieldName).isNull()) {
-            throw new BadRequestException("Field '" + fieldName + "' is required");
-        }
-        JsonNode valueNode = node.get(fieldName);
-        if (valueNode.isBoolean()) {
-            return valueNode.booleanValue();
-        }
-        throw new BadRequestException("Field '" + fieldName + "' must be a boolean");
-    }
-
-    private String normalizePath(APIGatewayProxyRequestEvent event) {
-=======
     private String optionalText(JsonNode node, String fieldName) {
         if (node == null || !node.has(fieldName) || node.get(fieldName).isNull()) {
             return null;
@@ -756,7 +632,6 @@ private PersistedTransaction persistTransaction(String accountId, JsonNode trans
     }
 
     protected String normalizePath(APIGatewayProxyRequestEvent event) {
->>>>>>> Tanush
         String path = Optional.ofNullable(event.getPath()).orElse("/");
         if (!path.startsWith("/")) {
             path = "/" + path;
@@ -820,11 +695,7 @@ private PersistedTransaction persistTransaction(String accountId, JsonNode trans
         return headers;
     }
 
-<<<<<<< HEAD
-    private APIGatewayProxyResponseEvent setResponse(APIGatewayProxyResponseEvent response, int statusCode,
-=======
     protected APIGatewayProxyResponseEvent setResponse(APIGatewayProxyResponseEvent response, int statusCode,
->>>>>>> Tanush
             String body) {
         response.setStatusCode(statusCode);
         response.setBody(body);
@@ -867,10 +738,6 @@ private PersistedTransaction persistTransaction(String accountId, JsonNode trans
         }
     }
 
-<<<<<<< HEAD
-    // NEW: added 4 additional helper methods (getAccount(), extractFraudScore(),
-    // extractAmount(), extractLocation())
-=======
     private double extractNumeric(Map<String, AttributeValue> item, String fieldName, double defaultValue) {
         if (item == null || !item.containsKey(fieldName)) {
             return defaultValue;
@@ -893,7 +760,6 @@ private PersistedTransaction persistTransaction(String accountId, JsonNode trans
         return defaultValue;
     }
 
->>>>>>> Tanush
     private Map<String, AttributeValue> getAccount(String accountId) throws Exception {
         if (ACCOUNTS_TABLE_NAME == null || ACCOUNTS_TABLE_NAME.isBlank()) {
             throw new IllegalStateException("Accounts table not configured");
@@ -946,8 +812,6 @@ private PersistedTransaction persistTransaction(String accountId, JsonNode trans
         return merchant.toUpperCase() + ", " + city + " " + state.toUpperCase();
     }
 
-<<<<<<< HEAD
-=======
     private Map<String, Object> buildTransactionSummary(
             String transactionId,
             String createdAt,
@@ -1010,7 +874,6 @@ private PersistedTransaction persistTransaction(String accountId, JsonNode trans
 
     private record PersistedTransaction(String id, String createdAt) { }
 
->>>>>>> Tanush
     private static class BadRequestException extends RuntimeException {
         BadRequestException(String message) {
             super(message);
