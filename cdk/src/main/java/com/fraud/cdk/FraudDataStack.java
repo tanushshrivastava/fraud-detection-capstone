@@ -7,6 +7,8 @@ import software.amazon.awscdk.StackProps;
 import software.amazon.awscdk.services.dynamodb.Attribute;
 import software.amazon.awscdk.services.dynamodb.AttributeType;
 import software.amazon.awscdk.services.dynamodb.BillingMode;
+import software.amazon.awscdk.services.dynamodb.GlobalSecondaryIndexProps;
+import software.amazon.awscdk.services.dynamodb.ProjectionType;
 import software.amazon.awscdk.services.dynamodb.Table;
 import software.constructs.Construct;
 
@@ -38,6 +40,20 @@ public class FraudDataStack extends Stack {
             .removalPolicy(RemovalPolicy.DESTROY)
             .build();
 
+        this.transactionsTable.addGlobalSecondaryIndex(
+            GlobalSecondaryIndexProps.builder()
+                .indexName("accountId-createdAt-index")
+                .partitionKey(Attribute.builder()
+                    .name("accountId")
+                    .type(AttributeType.STRING)
+                    .build())
+                .sortKey(Attribute.builder()
+                    .name("createdAt")
+                    .type(AttributeType.STRING)
+                    .build())
+                .build()
+        );
+
         CfnOutput.Builder.create(this, "TransactionsTableName")
             .value(transactionsTable.getTableName())
             .description("DynamoDB table that can store fraud prediction requests and responses.")
@@ -53,6 +69,17 @@ public class FraudDataStack extends Stack {
             .billingMode(BillingMode.PAY_PER_REQUEST)
             .removalPolicy(RemovalPolicy.DESTROY)
             .build();
+
+        this.accountsTable.addGlobalSecondaryIndex(
+            GlobalSecondaryIndexProps.builder()
+                .indexName("username-index")
+                .partitionKey(Attribute.builder()
+                    .name("username")
+                    .type(AttributeType.STRING)
+                    .build())
+                .projectionType(ProjectionType.ALL)
+                .build()
+        );
 
         CfnOutput.Builder.create(this, "AccountsTableName")
             .value(accountsTable.getTableName())
