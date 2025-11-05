@@ -48,6 +48,7 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           STACK_SUFFIX: ${{ secrets.STACK_SUFFIX || '' }}
           MODEL_OBJECT_KEY: ${{ secrets.MODEL_OBJECT_KEY || '' }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY || '' }}
         run: |
           cd cdk
           echo "Deploying backend/CDK stacks..."

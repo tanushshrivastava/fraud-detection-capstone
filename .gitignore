@@ -56,6 +56,7 @@ frontend/.expo/
 frontend/.expo-shared/
 frontend/web-build/
 frontend/build/
+frontend/build/*
 frontend/.DS_Store
 
 # -----------------------------
