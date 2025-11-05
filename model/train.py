@@ -173,7 +173,36 @@ def main() -> None:
     df["hour"] = df["trans_date_trans_time"].dt.hour
     df["dow"] = df["trans_date_trans_time"].dt.dayofweek
     # Compute age at transaction time to avoid data leakage
-    df["age"] = ((df["trans_date_trans_time"] - df["dob"]).dt.days / 365.25).clip(lower=0).astype(int)
+    df["age"] = ((df["trans_date_trans_time"] - df["dob"]).dt.days / 365.25).clip(lower=0)
+
+    # Additional stateless features to better capture suspicious patterns
+    # 1) Log-transformed amount to highlight extreme spent values
+    df["log_amt"] = (df["amt"].clip(lower=1e-6)).apply(lambda x: float(__import__("math").log(x)))
+    # 2) Very high amount flag (million-dollar+)
+    df["is_high_amount"] = (df["amt"] >= 1_000_000).astype(int)
+    # 3) Cyclical encoding for hour of day
+    import numpy as _np
+    df["hour_sin"] = _np.sin(2 * _np.pi * df["hour"] / 24.0)
+    df["hour_cos"] = _np.cos(2 * _np.pi * df["hour"] / 24.0)
+    # 4) Night flag (e.g., 0-6)
+    df["is_night"] = df["hour"].isin([0,1,2,3,4,5,6]).astype(int)
+    # 5) Haversine distance between user and merchant
+    def _haversine_km(lat1, lon1, lat2, lon2):
+        import math
+        if _np.isnan(lat1) or _np.isnan(lon1) or _np.isnan(lat2) or _np.isnan(lon2):
+            return 0.0
+        R = 6371.0
+        phi1 = math.radians(lat1)
+        phi2 = math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlambda = math.radians(lon2 - lon1)
+        a = math.sin(dphi/2)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda/2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return float(R * c)
+    df["distance_km"] = [
+        _haversine_km(la, lo, mla, mlo)
+        for la, lo, mla, mlo in zip(df["lat"], df["long"], df["merch_lat"], df["merch_long"])
+    ]
 
     target = "is_fraud"
     y = df[target]
@@ -190,12 +219,18 @@ def main() -> None:
 
     numeric_features = [
         "amt",
+        "log_amt",
+        "is_high_amount",
         "lat",
         "long",
         "city_pop",
         "merch_lat",
         "merch_long",
+        "distance_km",
         "hour",
+        "hour_sin",
+        "hour_cos",
+        "is_night",
         "age",
         "dow",
     ]

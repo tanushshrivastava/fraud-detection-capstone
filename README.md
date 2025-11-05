@@ -264,3 +264,42 @@ jobs:
 ```
 
 Fill in each secret defined in the deploy.yml file
+
+## Local Testing Without the Training CSV
+If you just want to test the trained model (model.joblib) without accessing fraudTrain.csv or deploying to AWS, use the new local inference utility.
+
+Quick start:
+- Score a built-in sample with a million-dollar transaction:
+  - cd model
+  - python local_infer.py --sample
+- Score an inline JSON payload:
+  - python local_infer.py --json '{"trans_date_trans_time":"2020-06-21 22:37:27","amt":1000000,"lat":40.71,"long":-74.0,"merch_lat":34.05,"merch_long":-118.24,"category":"shopping_pos","merchant":"Big Store","state":"NY","gender":"M","job":"Engineer","dob":"1980-01-01","city_pop":8000000}'
+- Batch-score a file (CSV or JSONL):
+  - python local_infer.py --file ./my_transactions.csv --output ./preds.csv
+
+By default, the script loads model/model.joblib. You can override with --model path/to/model.joblib.
+
+## Engineered Features to Better Flag Suspicious Transactions
+Training and inference now include additional stateless features that do not require user history but improve separability for extreme/odd transactions:
+- log_amt: natural log of amount, which highlights very large charges.
+- is_high_amount: binary flag when amount ≥ 1,000,000.
+- hour_sin, hour_cos: cyclical time-of-day encoding to capture periodic behavior.
+- is_night: flag for overnight hours (0–6), often riskier.
+- distance_km: haversine distance between cardholder location and merchant location.
+- Existing features retained: amt, lat/long, merch_lat/merch_long, city_pop, hour, dow, age, and categorical features merchant, category, gender, state, job.
+
+These features are computed consistently in both model/train.py and model/inference.py to avoid feature mismatches at serving time.
+
+## Roadmap: Previous Spending Habits (Stateful Behavioral Features)
+To incorporate user spending behavior without leakage, consider adding stateful features powered by a feature store or streaming aggregation:
+- Recent activity: counts and total amount in the last 1h/24h/7d.
+- Velocity: time since last transaction; transactions per hour.
+- Amount stability: rolling mean/std of amounts per card; z-score of the current amount.
+- Geo-velocity: distance traveled since last transaction; improbable travel speeds.
+- Diversity: number of unique merchants/categories in recent windows.
+
+Implementation options:
+- Online feature store (e.g., SageMaker Feature Store, Feast) populated by streaming jobs.
+- Lightweight streaming (Kinesis/Lambda or Kafka) maintaining per-card windows in an in-memory store like Redis or DynamoDB TTL tables.
+
+These will further improve recall on sophisticated fraud while keeping false positives controlled. The current release focuses on robust stateless features and local testing to unblock you immediately.
