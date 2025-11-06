@@ -77,8 +77,9 @@ public class AppMain {
         lambdaStack.addDependency(endpointStack);
         lambdaStack.addDependency(dataStack);
         apiStack.addDependency(lambdaStack);
-        // Frontend stack does not depend on the backend resources.
+        // Frontend stacks do not depend on the backend resources.
         new FraudFrontendStack(app, appendSuffix("FraudFrontendStack", suffix), stackProps);
+        new FraudWebFrontendStack(app, appendSuffix("FraudWebFrontendStack", suffix), stackProps);
 
         app.synth();
     }
