@@ -16,6 +16,16 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Load environment variables from root .env file
+if [ -f ".env" ]; then
+    echo "Loading environment variables from root .env..."
+    export $(grep -v '^#' .env | xargs)
+    echo ""
+else
+    echo -e "${YELLOW}Warning: .env file not found in root directory${NC}"
+    echo ""
+fi
+
 # Step 1: Build Backend Lambda
 echo -e "${BLUE}[1/4] Building Backend Lambda...${NC}"
 cd backend
@@ -44,13 +54,7 @@ if [ ! -d "node_modules" ]; then
     npm install
 fi
 
-# Check if .env exists, if not copy from .env.example
-if [ ! -f ".env" ]; then
-    echo -e "${YELLOW}Warning: .env not found in frontend-web. Copying from .env.example...${NC}"
-    cp .env.example .env
-    echo -e "${YELLOW}Please edit frontend-web/.env with your configuration before deployment.${NC}"
-fi
-
+# Environment variables from root .env are already exported and will be used by npm build
 npm run build
 cd ..
 echo -e "${GREEN}✓ Web Frontend built${NC}"

@@ -39,7 +39,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
+public abstract class FraudLambdaHandler
+        implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String DEFAULT_ENDPOINT_NAME = "fraud-detector-endpoint";
     private static final String ENDPOINT_NAME = Optional
@@ -264,7 +265,8 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
             assignments.add("phoneNumber = :phoneNumber");
         }
         if (fraudThreshold != null) {
-            expressionValues.put(":fraudThreshold", AttributeValue.builder().n(Double.toString(fraudThreshold)).build());
+            expressionValues.put(":fraudThreshold",
+                    AttributeValue.builder().n(Double.toString(fraudThreshold)).build());
             assignments.add("fraudThreshold = :fraudThreshold");
         }
 
@@ -452,7 +454,8 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
             for (Map<String, AttributeValue> record : response.items()) {
                 String transactionId = record.getOrDefault("id", AttributeValue.builder().s("").build()).s();
                 String createdAt = record.getOrDefault("createdAt", AttributeValue.builder().s("").build()).s();
-                String serializedTransaction = record.getOrDefault("transaction", AttributeValue.builder().s("{}").build()).s();
+                String serializedTransaction = record
+                        .getOrDefault("transaction", AttributeValue.builder().s("{}").build()).s();
                 String predictionJson = record.getOrDefault("prediction", AttributeValue.builder().s("{}").build()).s();
 
                 JsonNode transactionNode;
@@ -503,7 +506,8 @@ public abstract class FraudLambdaHandler implements RequestHandler<APIGatewayPro
     }
 
     // UPDATED: persistTransaction() to return transaction ID
-private PersistedTransaction persistTransaction(String accountId, JsonNode transactionNode, String prediction, Context context) {
+    private PersistedTransaction persistTransaction(String accountId, JsonNode transactionNode, String prediction,
+            Context context) {
         if (TRANSACTIONS_TABLE_NAME == null || TRANSACTIONS_TABLE_NAME.isBlank()) {
             return new PersistedTransaction(UUID.randomUUID().toString(), Instant.now().toString());
         }
@@ -870,9 +874,11 @@ private PersistedTransaction persistTransaction(String accountId, JsonNode trans
         return null;
     }
 
-    private record GeocodeResult(double latitude, double longitude) { }
+    private record GeocodeResult(double latitude, double longitude) {
+    }
 
-    private record PersistedTransaction(String id, String createdAt) { }
+    private record PersistedTransaction(String id, String createdAt) {
+    }
 
     private static class BadRequestException extends RuntimeException {
         BadRequestException(String message) {
