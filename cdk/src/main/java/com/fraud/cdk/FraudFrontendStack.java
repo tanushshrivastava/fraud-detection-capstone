@@ -28,53 +28,54 @@ public class FraudFrontendStack extends Stack {
     public FraudFrontendStack(final Construct scope, final String id, final StackProps props) {
         super(scope, id, props);
 
-        // Use a private bucket; CloudFront + OAI serve the SPA so S3 website hosting stays disabled.
+        // Use a private bucket; CloudFront + OAI serve the SPA so S3 website hosting
+        // stays disabled.
         Bucket siteBucket = Bucket.Builder.create(this, "FraudFrontendBucket")
-            .blockPublicAccess(BlockPublicAccess.BLOCK_ALL)
-            .build();
+                .blockPublicAccess(BlockPublicAccess.BLOCK_ALL)
+                .build();
 
-        // CloudFront origin access identity allows the distribution to read from the private bucket.
+        // CloudFront origin access identity allows the distribution to read from the
+        // private bucket.
         OriginAccessIdentity originAccessIdentity = new OriginAccessIdentity(this, "FrontendOAI");
         siteBucket.grantRead(originAccessIdentity.getGrantPrincipal());
 
         Distribution distribution = Distribution.Builder.create(this, "FraudDistribution")
-    .defaultRootObject("index.html")
-    .defaultBehavior(BehaviorOptions.builder()
-        .origin(new S3Origin(siteBucket, S3OriginProps.builder()
-            .originAccessIdentity(originAccessIdentity)
-            .build()))
-        .build())
-    .errorResponses(List.of(
-        software.amazon.awscdk.services.cloudfront.ErrorResponse.builder()
-            .httpStatus(403)
-            .responseHttpStatus(200)
-            .responsePagePath("/index.html")
-            .build(),
-        software.amazon.awscdk.services.cloudfront.ErrorResponse.builder()
-            .httpStatus(404)
-            .responseHttpStatus(200)
-            .responsePagePath("/index.html")
-            .build()
-    ))
-    .build();
+                .defaultRootObject("index.html")
+                .defaultBehavior(BehaviorOptions.builder()
+                        .origin(new S3Origin(siteBucket, S3OriginProps.builder()
+                                .originAccessIdentity(originAccessIdentity)
+                                .build()))
+                        .build())
+                .errorResponses(List.of(
+                        software.amazon.awscdk.services.cloudfront.ErrorResponse.builder()
+                                .httpStatus(403)
+                                .responseHttpStatus(200)
+                                .responsePagePath("/index.html")
+                                .build(),
+                        software.amazon.awscdk.services.cloudfront.ErrorResponse.builder()
+                                .httpStatus(404)
+                                .responseHttpStatus(200)
+                                .responsePagePath("/index.html")
+                                .build()))
+                .build();
 
         new BucketDeployment(this, "DeployReactApp",
-            BucketDeploymentProps.builder()
-                // Deploy the compiled React build to S3 and invalidate CloudFront paths.
-                .sources(List.of(Source.asset("../frontend/build")))
-                .destinationBucket(siteBucket)
-                .distribution(distribution)
-                .distributionPaths(List.of("/*"))
-                .build());
+                BucketDeploymentProps.builder()
+                        // Deploy the compiled React build to S3 and invalidate CloudFront paths.
+                        .sources(List.of(Source.asset("../frontend/build")))
+                        .destinationBucket(siteBucket)
+                        .distribution(distribution)
+                        .distributionPaths(List.of("/*"))
+                        .build());
 
         CfnOutput.Builder.create(this, "FrontendBucketName")
-            .value(siteBucket.getBucketName())
-            .description("S3 bucket that backs the CloudFront distribution (not publicly accessible).")
-            .build();
+                .value(siteBucket.getBucketName())
+                .description("S3 bucket that backs the CloudFront distribution (not publicly accessible).")
+                .build();
 
         CfnOutput.Builder.create(this, "CloudFrontDomain")
-            .value(distribution.getDomainName())
-            .description("CloudFront URL for the React frontend.")
-            .build();
+                .value(distribution.getDomainName())
+                .description("CloudFront URL for the React frontend.")
+                .build();
     }
 }
