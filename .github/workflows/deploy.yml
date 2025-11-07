@@ -49,6 +49,9 @@ jobs:
           STACK_SUFFIX: ${{ secrets.STACK_SUFFIX || '' }}
           MODEL_OBJECT_KEY: ${{ secrets.MODEL_OBJECT_KEY || '' }}
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY || '' }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID || '' }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN || '' }}
+          TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER || '' }}
         run: |
           cd cdk
           echo "Deploying backend/CDK stacks..."
