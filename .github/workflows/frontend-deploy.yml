@@ -1,10 +1,8 @@
 name: Deploy Frontend
 
 on:
-  workflow_dispatch:  # still allows manual runs
-  push:
-    branches: [ main ]
-    
+  workflow_dispatch:  # Only runs when manually triggered from GitHub Actions tab
+
 jobs:
   deploy-frontend:
     runs-on: ubuntu-latest
@@ -14,13 +12,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        # Retrieve repository contents for the deployment run.
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-        # Match the Node runtime used by the React build.
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -28,11 +24,9 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
-        # Authenticate against AWS via OIDC for the remainder of the workflow.
 
       - name: Install AWS CDK CLI
         run: npm install -g aws-cdk@2
-        # Install CDK to reuse the infrastructure code for the frontend stack.
 
       - name: Build frontend
         env:
@@ -48,7 +42,7 @@ jobs:
           echo "Deploying with account ${AWS_ACCOUNT_ID}"
           npm ci
           npm run export
-        # Create the production build artifact and surface which API it targets.
+          npm run build
 
       - name: Deploy frontend stack
         env:
@@ -59,4 +53,3 @@ jobs:
           cd cdk
           STACK_NAME="FraudFrontendStack${STACK_SUFFIX:+-$STACK_SUFFIX}"
           cdk deploy "$STACK_NAME" --require-approval never
-        # Deploy only the frontend stack to minimize blast radius for UI-only changes.
