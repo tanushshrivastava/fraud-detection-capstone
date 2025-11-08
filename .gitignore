@@ -7,6 +7,8 @@
 .vscode/
 .idea/
 .github/workflows/*
+.github/workflows/
+
 
 # -----------------------------
 # Python (model/)
@@ -54,6 +56,7 @@ cdk/api-outputs.json
 frontend/node_modules/
 frontend/dist/
 frontend/build/
+frontend/build/*
 frontend/.expo/
 frontend/.expo-shared/
 frontend/.DS_Store

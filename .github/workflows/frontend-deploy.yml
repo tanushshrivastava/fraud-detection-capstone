@@ -28,20 +28,30 @@ jobs:
       - name: Install AWS CDK CLI
         run: npm install -g aws-cdk@2
 
-      - name: Build frontend
+      - name: Build frontend (Expo)
+        working-directory: frontend
+        env:
+          REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
+          REACT_APP_API_ID: ${{ secrets.REACT_APP_API_ID }}
+          REACT_APP_API_REGION: ${{ secrets.REACT_APP_API_REGION }}
+          REACT_APP_API_STAGE: ${{ secrets.REACT_APP_API_STAGE }}
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+        run: |
+          echo "Front-end build using API https://${REACT_APP_API_ID}.execute-api.${REACT_APP_API_REGION}.amazonaws.com/${REACT_APP_API_STAGE}"
+          echo "Deploying with account ${AWS_ACCOUNT_ID}"
+          npm ci
+          npm run export
+
+      - name: Build public web frontend assets
+        working-directory: frontend-web
         env:
           REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
           REACT_APP_ACCOUNT_ID: ${{ secrets.REACT_APP_ACCOUNT_ID }}
           REACT_APP_API_ID: ${{ secrets.REACT_APP_API_ID }}
           REACT_APP_API_REGION: ${{ secrets.REACT_APP_API_REGION }}
           REACT_APP_API_STAGE: ${{ secrets.REACT_APP_API_STAGE }}
-          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
         run: |
-          cd frontend
-          echo "Front-end build using API https://${REACT_APP_API_ID}.execute-api.${REACT_APP_API_REGION}.amazonaws.com/${REACT_APP_API_STAGE}"
-          echo "Deploying with account ${AWS_ACCOUNT_ID}"
           npm ci
-          npm run export
           npm run build
 
       - name: Deploy frontend stack
@@ -51,5 +61,6 @@ jobs:
           STACK_SUFFIX: ${{ secrets.STACK_SUFFIX || '' }}
         run: |
           cd cdk
-          STACK_NAME="FraudFrontendStack${STACK_SUFFIX:+-$STACK_SUFFIX}"
-          cdk deploy "$STACK_NAME" --require-approval never
+          FRONT_STACK="FraudFrontendStack${STACK_SUFFIX:+-$STACK_SUFFIX}"
+          WEB_STACK="FraudWebFrontendStack${STACK_SUFFIX:+-$STACK_SUFFIX}"
+          cdk deploy "$FRONT_STACK" "$WEB_STACK" --require-approval never
