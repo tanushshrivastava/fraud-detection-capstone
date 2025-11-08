@@ -42,6 +42,18 @@ jobs:
             gradle buildLambda
           fi
 
+      - name: Build frontend web assets
+        working-directory: frontend
+        env:
+          REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
+          REACT_APP_API_ID: ${{ secrets.REACT_APP_API_ID }}
+          REACT_APP_API_REGION: ${{ secrets.REACT_APP_API_REGION }}
+          REACT_APP_API_STAGE: ${{ secrets.REACT_APP_API_STAGE }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY || '' }}
+        run: |
+          npm ci
+          npm run export
+
       - name: Deploy CDK backend stacks
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
