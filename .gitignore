@@ -58,6 +58,15 @@ frontend/.expo/
 frontend/.expo-shared/
 frontend/.DS_Store
 
+frontend-web/node_modules/
+frontend-web/dist/
+frontend-web/.expo/
+frontend-web/.expo-shared/
+frontend-web/web-build/
+frontend-web/build/
+frontend-web/build/*
+frontend-web/.DS_Store
+
 # -----------------------------
 # Miscellaneous / Logs
 # -----------------------------
