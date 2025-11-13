@@ -54,6 +54,21 @@ public class FraudDataStack extends Stack {
                 .build()
         );
 
+        this.transactionsTable.addGlobalSecondaryIndex(
+            GlobalSecondaryIndexProps.builder()
+                .indexName("phoneNumber-createdAt-index")
+                .partitionKey(Attribute.builder()
+                    .name("phoneNumber")
+                    .type(AttributeType.STRING)
+                    .build())
+                .sortKey(Attribute.builder()
+                    .name("createdAt")
+                    .type(AttributeType.STRING)
+                    .build())
+                .projectionType(ProjectionType.ALL)
+                .build()
+        );
+
         CfnOutput.Builder.create(this, "TransactionsTableName")
             .value(transactionsTable.getTableName())
             .description("DynamoDB table that can store fraud prediction requests and responses.")

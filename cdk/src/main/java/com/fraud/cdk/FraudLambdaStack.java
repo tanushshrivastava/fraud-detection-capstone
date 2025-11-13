@@ -117,8 +117,11 @@ public class FraudLambdaStack extends Stack {
             "TwilioWebhookLambda",
             "com.fraud.lambda.TwilioWebhookHandler::handleRequest",
             createRole("TwilioWebhookLambdaRole", false),
-            buildEnvironment(lambdaProps, false, false, false, true, false),
+            buildEnvironment(lambdaProps, false, true, false, true, false),
             lambdaCode);
+        if (transactionsTable != null) {
+            transactionsTable.grantReadWriteData(twilioWebhookFunction);
+        }
         outputFunction("TwilioWebhookLambdaFunctionName", twilioWebhookFunction,
             "Handles POST /webhook/twilio requests.");
     }

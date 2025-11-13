@@ -49,6 +49,7 @@ public abstract class FraudLambdaHandler
             .orElse(DEFAULT_ENDPOINT_NAME);
     private static final String ACCOUNTS_TABLE_NAME = System.getenv("ACCOUNTS_TABLE_NAME");
     private static final String TRANSACTIONS_TABLE_NAME = System.getenv("TRANSACTION_TABLE_NAME");
+    private static final String PHONE_NUMBER_INDEX_NAME = "phoneNumber-createdAt-index";
     private static final String GOOGLE_MAPS_API_KEY = System.getenv("GOOGLE_MAPS_API_KEY");
     private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
 
@@ -369,10 +370,13 @@ public abstract class FraudLambdaHandler
 
         // NEW: Check if we should send SMS alert
         boolean smsSent = false;
+        boolean awaitingCustomerResponse = false;
+        String phoneNumberForAlert = null;
         if (TwilioService.isConfigured()) {
             try {
                 String phoneNumber = account.containsKey("phoneNumber") ? account.get("phoneNumber").s() : "";
                 if (fraudScore >= fraudThreshold && phoneNumber != null && !phoneNumber.isBlank()) {
+                    phoneNumberForAlert = phoneNumber;
                     String amount = extractAmount(transactionNode);
                     String location = extractLocation(transactionNode);
 
@@ -399,6 +403,8 @@ public abstract class FraudLambdaHandler
                             messageSid));
 
                     smsSent = true;
+                    awaitingCustomerResponse = true;
+                    markTransactionAwaitingResponse(transactionId, accountId, phoneNumber, messageSid, context);
                 } else {
                     context.getLogger().log(String.format(
                             "Fraud score %.4f below threshold %.4f; no SMS sent for transaction %s",
@@ -412,19 +418,30 @@ public abstract class FraudLambdaHandler
             }
         }
 
+        Map<String, Object> transactionSummary = buildTransactionSummary(
+                transactionId,
+                persisted.createdAt(),
+                transactionNode,
+                result,
+                fraudScore);
+        transactionSummary.put("awaitingResponse", awaitingCustomerResponse);
+        transactionSummary.put("customerResponseFlag", 0);
+        transactionSummary.put("customerMarkedFraud", false);
+        if (smsSent) {
+            transactionSummary.put("phoneNumber", phoneNumberForAlert);
+        }
+
         Map<String, Object> responseBody = new HashMap<>();
         responseBody.put("accountId", accountId);
         responseBody.put("transactionId", transactionId);
         responseBody.put("prediction", safeParseJson(result));
         responseBody.put("smsSent", smsSent);
+        responseBody.put("awaitingResponse", awaitingCustomerResponse);
+        responseBody.put("customerResponseFlag", 0);
+        responseBody.put("customerMarkedFraud", false);
         responseBody.put("fraudScore", fraudScore);
         responseBody.put("fraudThreshold", fraudThreshold);
-        responseBody.put("transactionSummary", buildTransactionSummary(
-                transactionId,
-                persisted.createdAt(),
-                transactionNode,
-                result,
-                fraudScore));
+        responseBody.put("transactionSummary", transactionSummary);
         return setResponse(baseResponse, 200, toJson(responseBody));
     }
 
@@ -478,6 +495,50 @@ public abstract class FraudLambdaHandler
                         transactionNode,
                         predictionJson,
                         fraudScore);
+
+                AttributeValue responseFlagAttr = record.get("customerResponseFlag");
+                int responseFlag = 0;
+                if (responseFlagAttr != null && responseFlagAttr.n() != null) {
+                    try {
+                        responseFlag = Integer.parseInt(responseFlagAttr.n());
+                    } catch (NumberFormatException ignored) {
+                        responseFlag = 0;
+                    }
+                }
+                summary.put("customerResponseFlag", responseFlag);
+
+                AttributeValue awaitingAttr = record.get("awaitingResponse");
+                if (awaitingAttr != null) {
+                    summary.put("awaitingResponse", awaitingAttr.bool());
+                } else {
+                    summary.put("awaitingResponse", false);
+                }
+
+                AttributeValue respondedAtAttr = record.get("customerRespondedAt");
+                if (respondedAtAttr != null && respondedAtAttr.s() != null && !respondedAtAttr.s().isBlank()) {
+                    summary.put("customerRespondedAt", respondedAtAttr.s());
+                }
+
+                AttributeValue responseTextAttr = record.get("customerResponseText");
+                if (responseTextAttr != null && responseTextAttr.s() != null) {
+                    summary.put("customerResponseText", responseTextAttr.s());
+                }
+
+                AttributeValue phoneDisplayAttr = record.get("phoneNumberDisplay");
+                if (phoneDisplayAttr != null && phoneDisplayAttr.s() != null) {
+                    summary.put("phoneNumber", phoneDisplayAttr.s());
+                } else {
+                    AttributeValue phoneAttr = record.get("phoneNumber");
+                    if (phoneAttr != null && phoneAttr.s() != null) {
+                        summary.put("phoneNumber", phoneAttr.s());
+                    }
+                }
+
+                AttributeValue markedAttr = record.get("customerMarkedFraud");
+                if (markedAttr != null) {
+                    summary.put("customerMarkedFraud", markedAttr.bool());
+                }
+
                 items.add(summary);
             }
             return items;
@@ -520,17 +581,221 @@ public abstract class FraudLambdaHandler
         item.put("transaction", AttributeValue.builder().s(transactionNode.toString()).build());
         item.put("prediction", AttributeValue.builder().s(prediction).build());
         item.put("createdAt", AttributeValue.builder().s(createdAt).build());
+        item.put("customerResponseFlag", AttributeValue.builder().n("0").build());
+        item.put("awaitingResponse", AttributeValue.builder().bool(false).build());
+        item.put("customerMarkedFraud", AttributeValue.builder().bool(false).build());
 
         try (DynamoDbClient dynamoDb = DynamoDbClient.create()) {
             dynamoDb.putItem(PutItemRequest.builder()
                     .tableName(TRANSACTIONS_TABLE_NAME)
                     .item(item)
                     .build());
+            context.getLogger().log(String.format(
+                    "Persisted transaction %s for account %s (initial customerResponseFlag=0)",
+                    transactionId,
+                    accountId));
         } catch (Exception e) {
             context.getLogger().log("Failed to persist transaction: " + e.getMessage());
         }
 
         return new PersistedTransaction(transactionId, createdAt);
+    }
+
+    private void markTransactionAwaitingResponse(
+            String transactionId,
+            String accountId,
+            String phoneNumber,
+            String messageSid,
+            Context context) {
+        if (TRANSACTIONS_TABLE_NAME == null || TRANSACTIONS_TABLE_NAME.isBlank()) {
+            return;
+        }
+        if (transactionId == null || transactionId.isBlank()) {
+            return;
+        }
+        if (phoneNumber == null || phoneNumber.isBlank()) {
+            context.getLogger().log("Phone number missing; skipping awaiting-response mark for transaction " + transactionId);
+            return;
+        }
+
+        Map<String, AttributeValue> key = Map.of(
+                "id", AttributeValue.builder().s(transactionId).build());
+
+        String normalizedPhone = normalizePhoneNumber(phoneNumber);
+        if (normalizedPhone == null || normalizedPhone.isBlank()) {
+            context.getLogger().log("Unable to normalize phone number '" + phoneNumber
+                    + "'; skipping awaiting-response mark for transaction " + transactionId);
+            return;
+        }
+
+        Map<String, String> names = new HashMap<>();
+        names.put("#phone", "phoneNumber");
+        names.put("#phoneDisplay", "phoneNumberDisplay");
+        names.put("#awaiting", "awaitingResponse");
+        names.put("#flag", "customerResponseFlag");
+        names.put("#responseText", "customerResponseText");
+        names.put("#respondedAt", "customerRespondedAt");
+
+        Map<String, AttributeValue> values = new HashMap<>();
+        values.put(":phone", AttributeValue.builder().s(normalizedPhone).build());
+        values.put(":phoneDisplay", AttributeValue.builder().s(phoneNumber).build());
+        values.put(":awaiting", AttributeValue.builder().bool(true).build());
+        values.put(":zero", AttributeValue.builder().n("0").build());
+
+        StringBuilder updateExpression = new StringBuilder(
+                "SET #phone = :phone, #phoneDisplay = :phoneDisplay, #awaiting = :awaiting, "
+                        + "#flag = if_not_exists(#flag, :zero)");
+
+        if (messageSid != null && !messageSid.isBlank()) {
+            names.put("#messageSid", "outboundMessageSid");
+            values.put(":messageSid", AttributeValue.builder().s(messageSid).build());
+            updateExpression.append(", #messageSid = :messageSid");
+        }
+
+        updateExpression.append(" REMOVE #responseText, #respondedAt");
+
+        try (DynamoDbClient dynamoDb = DynamoDbClient.create()) {
+            dynamoDb.updateItem(UpdateItemRequest.builder()
+                    .tableName(TRANSACTIONS_TABLE_NAME)
+                    .key(key)
+                    .updateExpression(updateExpression.toString())
+                    .expressionAttributeNames(names)
+                    .expressionAttributeValues(values)
+                    .build());
+            context.getLogger().log(String.format(
+                    "Marked transaction %s for account %s awaiting customer response (phone=%s, messageSid=%s)",
+                    transactionId,
+                    accountId,
+                    phoneNumber,
+                    messageSid));
+        } catch (Exception e) {
+            context.getLogger().log(String.format(
+                    "Failed to mark transaction %s for account %s as awaiting response: %s",
+                    transactionId,
+                    accountId,
+                    e.getMessage()));
+        }
+    }
+
+    private Optional<Map<String, AttributeValue>> findLatestTransactionForPhone(
+            String phoneNumber,
+            Context context) {
+        if (TRANSACTIONS_TABLE_NAME == null || TRANSACTIONS_TABLE_NAME.isBlank()) {
+            context.getLogger().log("TRANSACTION_TABLE_NAME is not configured; cannot query for phone " + phoneNumber);
+            return Optional.empty();
+        }
+        if (phoneNumber == null || phoneNumber.isBlank()) {
+            return Optional.empty();
+        }
+
+        String normalizedPhone = normalizePhoneNumber(phoneNumber);
+        if (normalizedPhone == null || normalizedPhone.isBlank()) {
+            context.getLogger().log("Unable to normalize phone number '" + phoneNumber
+                    + "' for query; skipping lookup.");
+            return Optional.empty();
+        }
+
+        Map<String, AttributeValue> expressionValues = Map.of(
+                ":phone", AttributeValue.builder().s(normalizedPhone).build());
+
+        QueryRequest request = QueryRequest.builder()
+                .tableName(TRANSACTIONS_TABLE_NAME)
+                .indexName(PHONE_NUMBER_INDEX_NAME)
+                .keyConditionExpression("phoneNumber = :phone")
+                .expressionAttributeValues(expressionValues)
+                .scanIndexForward(false)
+                .limit(1)
+                .build();
+
+        context.getLogger().log(String.format(
+                "Querying %s (index=%s) for latest transaction with phone %s",
+                TRANSACTIONS_TABLE_NAME,
+                PHONE_NUMBER_INDEX_NAME,
+                normalizedPhone));
+
+        try (DynamoDbClient dynamoDb = DynamoDbClient.create()) {
+            QueryResponse response = dynamoDb.query(request);
+            if (response.items() != null && !response.items().isEmpty()) {
+                context.getLogger().log(String.format(
+                        "Found %d transactions for phone %s; returning the most recent",
+                        response.items().size(),
+                        phoneNumber));
+                return Optional.of(response.items().get(0));
+            } else {
+                context.getLogger().log("No transactions found for phone " + phoneNumber);
+            }
+        } catch (Exception e) {
+            context.getLogger().log("Failed to query latest transaction for phone "
+                    + phoneNumber + ": " + e.getMessage());
+        }
+        return Optional.empty();
+    }
+
+    private boolean recordCustomerResponse(
+            String fromNumber,
+            boolean isFraud,
+            String rawMessage,
+            Context context) {
+        if (TRANSACTIONS_TABLE_NAME == null || TRANSACTIONS_TABLE_NAME.isBlank()) {
+            context.getLogger().log("Cannot record customer response because TRANSACTION_TABLE_NAME is not set");
+            return false;
+        }
+        context.getLogger().log("Recording customer response. From=" + fromNumber + ", isFraud=" + isFraud);
+        Optional<Map<String, AttributeValue>> latest = findLatestTransactionForPhone(fromNumber, context);
+        if (latest.isEmpty()) {
+            context.getLogger().log("No pending transaction found for number " + fromNumber);
+            return false;
+        }
+
+        AttributeValue idAttr = latest.get().get("id");
+        if (idAttr == null || idAttr.s() == null || idAttr.s().isBlank()) {
+            context.getLogger().log("Latest transaction for " + fromNumber + " is missing an id");
+            return false;
+        }
+
+        String transactionId = idAttr.s();
+        Map<String, AttributeValue> key = Map.of(
+                "id", AttributeValue.builder().s(transactionId).build());
+
+        Map<String, String> names = new HashMap<>();
+        names.put("#flag", "customerResponseFlag");
+        names.put("#awaiting", "awaitingResponse");
+        names.put("#responseText", "customerResponseText");
+        names.put("#respondedAt", "customerRespondedAt");
+        names.put("#customerMarkedFraud", "customerMarkedFraud");
+
+        Map<String, AttributeValue> values = new HashMap<>();
+        values.put(":flag", AttributeValue.builder().n(isFraud ? "1" : "0").build());
+        values.put(":awaiting", AttributeValue.builder().bool(false).build());
+        values.put(":responseText", AttributeValue.builder()
+                .s(rawMessage == null ? "" : rawMessage.trim())
+                .build());
+        values.put(":respondedAt", AttributeValue.builder().s(Instant.now().toString()).build());
+        values.put(":fraudValue", AttributeValue.builder().bool(isFraud).build());
+
+        try (DynamoDbClient dynamoDb = DynamoDbClient.create()) {
+            dynamoDb.updateItem(UpdateItemRequest.builder()
+                    .tableName(TRANSACTIONS_TABLE_NAME)
+                    .key(key)
+                    .updateExpression(
+                            "SET #flag = :flag, #awaiting = :awaiting, #responseText = :responseText, "
+                                    + "#respondedAt = :respondedAt, #customerMarkedFraud = :fraudValue")
+                    .expressionAttributeNames(names)
+                    .expressionAttributeValues(values)
+                    .build());
+            context.getLogger().log(String.format(
+                    "Recorded customer response for transaction %s (from=%s, fraud=%s, flag=%s)",
+                    transactionId,
+                    fromNumber,
+                    isFraud,
+                    isFraud ? "1" : "0"));
+            return true;
+        } catch (Exception e) {
+            context.getLogger().log(
+                    "Failed to persist customer response for transaction "
+                            + transactionId + ": " + e.getMessage());
+            return false;
+        }
     }
 
     // NEW METHOD: Twilio Webhook Handler
@@ -551,6 +816,9 @@ public abstract class FraudLambdaHandler
         Map<String, String> formData = parseFormData(body);
         String messageBody = formData.get("Body");
         String fromNumber = formData.get("From");
+        if (fromNumber == null || fromNumber.isBlank()) {
+            throw new BadRequestException("Sender phone number missing");
+        }
 
         context.getLogger().log("SMS from " + fromNumber + ": " + messageBody);
 
@@ -559,19 +827,24 @@ public abstract class FraudLambdaHandler
 
         if (isFraud == null) {
             // Unclear response - send help message
+            context.getLogger().log("Unable to interpret response from " + fromNumber + ": " + messageBody);
             return setResponse(baseResponse, 200,
                     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
                             "<Response><Message>Please reply with YES if legitimate or NO if fraudulent.</Message></Response>");
         }
 
-        // Update the transaction in the database
-        // Note: You'll need to find the transaction by phone number
-        // For now, just log it
-        context.getLogger().log("User confirmed fraud status: " + isFraud);
+        boolean customerConfirmedFraud = Boolean.TRUE.equals(isFraud);
+        boolean recorded = recordCustomerResponse(fromNumber, customerConfirmedFraud, messageBody, context);
+        if (!recorded) {
+            context.getLogger()
+                    .log("Unable to find a pending transaction to update for phone " + fromNumber);
+        } else {
+            context.getLogger().log("Customer response persisted for phone " + fromNumber);
+        }
 
         // Send confirmation SMS
         try {
-            TwilioService.sendConfirmation(fromNumber, isFraud);
+            TwilioService.sendConfirmation(fromNumber, customerConfirmedFraud);
         } catch (Exception e) {
             context.getLogger().log("Failed to send confirmation: " + e.getMessage());
         }
@@ -633,6 +906,25 @@ public abstract class FraudLambdaHandler
         }
         String text = node.get(fieldName).asText();
         return text != null ? text.trim() : null;
+    }
+
+    private String normalizePhoneNumber(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String digitsOnly = raw.chars()
+                .filter(Character::isDigit)
+                .collect(StringBuilder::new,
+                        StringBuilder::appendCodePoint,
+                        StringBuilder::append)
+                .toString();
+        if (digitsOnly.isBlank()) {
+            return null;
+        }
+        if (digitsOnly.length() == 11 && digitsOnly.startsWith("1")) {
+            digitsOnly = digitsOnly.substring(1);
+        }
+        return digitsOnly;
     }
 
     protected String normalizePath(APIGatewayProxyRequestEvent event) {
