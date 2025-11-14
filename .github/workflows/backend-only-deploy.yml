@@ -54,6 +54,7 @@ jobs:
           TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID || '' }}
           TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN || '' }}
           TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER || '' }}
+          CITY_POPULATION_KEY: ${{ secrets.CITY_POPULATION_KEY || '' }}
         run: |
           cd cdk
           SUFFIX="${STACK_SUFFIX:+-$STACK_SUFFIX}"
