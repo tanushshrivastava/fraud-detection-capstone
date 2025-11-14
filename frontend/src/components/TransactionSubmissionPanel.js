@@ -36,10 +36,12 @@ const TransactionSubmissionPanel = ({ account, onSubmitTransaction, lastResult }
     setForm({ ...preset.transaction });
   };
 
-  const hasMissingFields = transactionFieldNames.some(
+  const requiredFields = ['amt', 'category', 'merchant', 'merch_lat', 'merch_long'];
+  const hasMissingFields = requiredFields.some(
     (key) => !form[key] || `${form[key]}`.trim() === ""
   );
-  const hasInvalidNumbers = numericTransactionFields.some((field) =>
+  const numericFields = ['amt', 'merch_lat', 'merch_long'];
+  const hasInvalidNumbers = numericFields.some((field) =>
     Number.isNaN(Number(form[field]))
   );
 
@@ -110,27 +112,8 @@ const TransactionSubmissionPanel = ({ account, onSubmitTransaction, lastResult }
 
         <View style={styles.form}>
           <Text variant="labelMedium" style={styles.sectionHeading}>
-            Transaction Details
+            Merchant Details
           </Text>
-          <TextInput
-            label="Transaction Number"
-            value={form.trans_num}
-            mode="outlined"
-            onChangeText={(text) => handleChange("trans_num", text)}
-          />
-          <TextInput
-            label="Transaction Date (YYYY-MM-DD HH:mm:ss)"
-            value={form.trans_date_trans_time}
-            mode="outlined"
-            onChangeText={(text) => handleChange("trans_date_trans_time", text)}
-          />
-          <TextInput
-            label="Unix Time"
-            value={form.unix_time}
-            mode="outlined"
-            keyboardType="number-pad"
-            onChangeText={(text) => handleChange("unix_time", text)}
-          />
           <TextInput
             label="Amount"
             value={form.amt}
@@ -149,96 +132,6 @@ const TransactionSubmissionPanel = ({ account, onSubmitTransaction, lastResult }
             value={form.merchant}
             mode="outlined"
             onChangeText={(text) => handleChange("merchant", text)}
-          />
-          <Text variant="labelMedium" style={styles.sectionHeading}>
-            Cardholder Details
-          </Text>
-          <TextInput
-            label="Card Number"
-            value={form.cc_num}
-            mode="outlined"
-            keyboardType="number-pad"
-            onChangeText={(text) => handleChange("cc_num", text)}
-          />
-          <TextInput
-            label="First Name"
-            value={form.first}
-            mode="outlined"
-            onChangeText={(text) => handleChange("first", text)}
-          />
-          <TextInput
-            label="Last Name"
-            value={form.last}
-            mode="outlined"
-            onChangeText={(text) => handleChange("last", text)}
-          />
-          <TextInput
-            label="Gender"
-            value={form.gender}
-            mode="outlined"
-            onChangeText={(text) => handleChange("gender", text)}
-          />
-          <TextInput
-            label="Date of Birth (YYYY-MM-DD)"
-            value={form.dob}
-            mode="outlined"
-            onChangeText={(text) => handleChange("dob", text)}
-          />
-          <TextInput
-            label="Occupation"
-            value={form.job}
-            mode="outlined"
-            onChangeText={(text) => handleChange("job", text)}
-          />
-          <Text variant="labelMedium" style={styles.sectionHeading}>
-            Location Details
-          </Text>
-          <TextInput
-            label="Street"
-            value={form.street}
-            mode="outlined"
-            onChangeText={(text) => handleChange("street", text)}
-          />
-          <TextInput
-            label="City"
-            value={form.city}
-            mode="outlined"
-            onChangeText={(text) => handleChange("city", text)}
-          />
-          <TextInput
-            label="State"
-            value={form.state}
-            mode="outlined"
-            autoCapitalize="characters"
-            onChangeText={(text) => handleChange("state", text)}
-          />
-          <TextInput
-            label="ZIP"
-            value={form.zip}
-            mode="outlined"
-            keyboardType="number-pad"
-            onChangeText={(text) => handleChange("zip", text)}
-          />
-          <TextInput
-            label="City Population"
-            value={form.city_pop}
-            mode="outlined"
-            keyboardType="number-pad"
-            onChangeText={(text) => handleChange("city_pop", text)}
-          />
-          <TextInput
-            label="Cardholder Latitude"
-            value={form.lat}
-            mode="outlined"
-            keyboardType="decimal-pad"
-            onChangeText={(text) => handleChange("lat", text)}
-          />
-          <TextInput
-            label="Cardholder Longitude"
-            value={form.long}
-            mode="outlined"
-            keyboardType="decimal-pad"
-            onChangeText={(text) => handleChange("long", text)}
           />
           <TextInput
             label="Merchant Latitude"

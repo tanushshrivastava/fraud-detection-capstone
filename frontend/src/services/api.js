@@ -41,6 +41,7 @@ const buildError = (error) => {
 
 export const createAccount = async (payload) => {
   try {
+    console.log("API service sending:", payload);
     const response = await client.post("/accounts", payload);
     return response.data;
   } catch (error) {
