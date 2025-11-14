@@ -30,6 +30,7 @@ public class FraudLambdaStack extends Stack {
     private final Function getRecentTransactionsFunction;
     private final Function submitTransactionFunction;
     private final Function twilioWebhookFunction;
+    private final Function getUserDetailsFunction;
 
     public FraudLambdaStack(final Construct scope, final String id, final FraudLambdaStackProps lambdaProps) {
         this(scope, id, null, lambdaProps);
@@ -124,6 +125,18 @@ public class FraudLambdaStack extends Stack {
         }
         outputFunction("TwilioWebhookLambdaFunctionName", twilioWebhookFunction,
             "Handles POST /webhook/twilio requests.");
+
+        this.getUserDetailsFunction = buildFunction(
+            "GetUserDetailsLambda",
+            "com.fraud.lambda.GetUserDetailsHandler::handleRequest",
+            createRole("GetUserDetailsLambdaRole", false),
+            buildEnvironment(lambdaProps, false, false, true, false, false),
+            lambdaCode);
+        if (accountsTable != null) {
+            accountsTable.grantReadData(getUserDetailsFunction);
+        }
+        outputFunction("GetUserDetailsLambdaFunctionName", getUserDetailsFunction,
+            "Handles POST /user-details requests.");
     }
 
     public Function getCreateAccountFunction() {
@@ -148,6 +161,10 @@ public class FraudLambdaStack extends Stack {
 
     public Function getTwilioWebhookFunction() {
         return twilioWebhookFunction;
+    }
+
+    public Function getUserDetailsFunction() {
+        return getUserDetailsFunction;
     }
 
     private Function buildFunction(
@@ -203,6 +220,7 @@ public class FraudLambdaStack extends Stack {
         }
         if (includeGoogleMaps) {
             EnvConfig.get("GOOGLE_MAPS_API_KEY").ifPresent(key -> environment.put("GOOGLE_MAPS_API_KEY", key));
+            EnvConfig.get("CITY_POPULATION_KEY").ifPresent(key -> environment.put("CITY_POPULATION_KEY", key));
         }
         return environment;
     }

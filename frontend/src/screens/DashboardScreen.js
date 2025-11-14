@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
 import { Button, Text, useTheme } from "react-native-paper";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import AccountAccessPanel from "@/components/AccountAccessPanel";
 import NotificationSettingsPanel from "@/components/NotificationSettingsPanel";
 import TransactionSubmissionPanel from "@/components/TransactionSubmissionPanel";
@@ -23,6 +24,40 @@ const DashboardScreen = () => {
     lastScore: undefined
   };
   const [account, setAccount] = useState(null);
+  const [isLoadingSession, setIsLoadingSession] = useState(true);
+
+  useEffect(() => {
+    loadSession();
+  }, []);
+
+  const loadSession = async () => {
+    try {
+      const savedAccount = await AsyncStorage.getItem('fraudDetectionAccount');
+      if (savedAccount) {
+        setAccount(JSON.parse(savedAccount));
+      }
+    } catch (error) {
+      console.error('Failed to load session:', error);
+    } finally {
+      setIsLoadingSession(false);
+    }
+  };
+
+  const saveSession = async (accountData) => {
+    try {
+      await AsyncStorage.setItem('fraudDetectionAccount', JSON.stringify(accountData));
+    } catch (error) {
+      console.error('Failed to save session:', error);
+    }
+  };
+
+  const clearSession = async () => {
+    try {
+      await AsyncStorage.removeItem('fraudDetectionAccount');
+    } catch (error) {
+      console.error('Failed to clear session:', error);
+    }
+  };
   const [recentTransactions, setRecentTransactions] = useState([]);
   const [lastTransactionResult, setLastTransactionResult] = useState(null);
   const [bannerState, setBannerState] = useState(initialBannerState);
@@ -43,27 +78,19 @@ const DashboardScreen = () => {
   };
 
   const handleAccountCreated = async (payload) => {
-    const requestBody = {
-      username: payload.username,
-      email: payload.email,
-      address: payload.address,
-      password: payload.password
-    };
-
-    if (payload.phoneNumber) {
-      requestBody.phoneNumber = payload.phoneNumber;
-    }
-
-    const response = await createAccount(requestBody);
+    const response = await createAccount(payload);
     const nextAccount = {
       accountId: response.accountId,
       username: payload.username,
       email: payload.email,
       address: payload.address,
       phoneNumber: response.phoneNumber ?? payload.phoneNumber ?? "",
-      fraudThreshold: response.fraudThreshold
+      fraudThreshold: response.fraudThreshold,
+      firstName: response.firstName ?? payload.first_name,
+      lastName: response.lastName ?? payload.last_name
     };
     setAccount(nextAccount);
+    saveSession(nextAccount);
     setRecentTransactions([]);
     setLastTransactionResult(null);
     setBannerState({
@@ -84,6 +111,7 @@ const DashboardScreen = () => {
     };
     const transactions = response.recentTransactions ?? [];
     setAccount(nextAccount);
+    saveSession(nextAccount);
     setRecentTransactions(transactions);
     setLastTransactionResult(null);
     setBannerState({
@@ -167,12 +195,23 @@ const DashboardScreen = () => {
   };
 
   const handleLogout = () => {
+    clearSession();
     setAccount(null);
     setRecentTransactions([]);
     setLastTransactionResult(null);
     setBannerState({ ...initialBannerState });
     setIsRefreshingTransactions(false);
   };
+
+  if (isLoadingSession) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors?.background ?? palette.background }]}>
+        <View style={styles.loadingContainer}>
+          <Text>Loading...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView
@@ -294,6 +333,11 @@ const styles = StyleSheet.create({
   authSubtitle: {
     textAlign: "center",
     color: palette.textSecondary
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center"
   }
 });
 

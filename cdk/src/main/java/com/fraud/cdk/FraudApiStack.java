@@ -29,7 +29,8 @@ public class FraudApiStack extends Stack {
             final Function updateAccountSettingsHandler,
             final Function getRecentTransactionsHandler,
             final Function submitTransactionHandler,
-            final Function twilioWebhookHandler) {
+            final Function twilioWebhookHandler,
+            final Function getUserDetailsHandler) {
         this(
             scope,
             id,
@@ -40,7 +41,8 @@ public class FraudApiStack extends Stack {
             updateAccountSettingsHandler,
             getRecentTransactionsHandler,
             submitTransactionHandler,
-            twilioWebhookHandler);
+            twilioWebhookHandler,
+            getUserDetailsHandler);
     }
 
     public FraudApiStack(
@@ -53,7 +55,8 @@ public class FraudApiStack extends Stack {
             final Function updateAccountSettingsHandler,
             final Function getRecentTransactionsHandler,
             final Function submitTransactionHandler,
-            final Function twilioWebhookHandler) {
+            final Function twilioWebhookHandler,
+            final Function getUserDetailsHandler) {
         super(scope, id, props);
         Objects.requireNonNull(createAccountHandler, "createAccountHandler is required");
         Objects.requireNonNull(loginHandler, "loginHandler is required");
@@ -61,6 +64,7 @@ public class FraudApiStack extends Stack {
         Objects.requireNonNull(getRecentTransactionsHandler, "getRecentTransactionsHandler is required");
         Objects.requireNonNull(submitTransactionHandler, "submitTransactionHandler is required");
         Objects.requireNonNull(twilioWebhookHandler, "twilioWebhookHandler is required");
+        Objects.requireNonNull(getUserDetailsHandler, "getUserDetailsHandler is required");
 
         String restApiName = env.stackSuffix().isBlank()
             ? "FraudDetectionApi"
@@ -68,6 +72,11 @@ public class FraudApiStack extends Stack {
 
         this.api = RestApi.Builder.create(this, "FraudApi")
             .restApiName(restApiName)
+            .deployOptions(software.amazon.awscdk.services.apigateway.StageOptions.builder()
+                .loggingLevel(software.amazon.awscdk.services.apigateway.MethodLoggingLevel.INFO)
+                .dataTraceEnabled(true)
+                .metricsEnabled(true)
+                .build())
             .defaultCorsPreflightOptions(CorsOptions.builder()
                 .allowOrigins(Cors.ALL_ORIGINS)
                 .allowMethods(Cors.ALL_METHODS)
@@ -95,6 +104,9 @@ public class FraudApiStack extends Stack {
         Resource webhook = api.getRoot().addResource("webhook");
         Resource twilio = webhook.addResource("twilio");
         twilio.addMethod("POST", new LambdaIntegration(twilioWebhookHandler));
+
+        Resource userDetails = api.getRoot().addResource("user-details");
+        userDetails.addMethod("POST", new LambdaIntegration(getUserDetailsHandler));
 
         CfnOutput.Builder.create(this, "ApiEndpoint")
             .value(api.getUrl())

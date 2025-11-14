@@ -27,13 +27,23 @@ const PRIMARY_FIELD_OVERRIDES = {
 };
 
 const createInitialAccountForm = () => ({
-  name: "",
+  username: "",
+  email: "",
   address: "",
-  needs: "",
   password: "",
   phoneNumber: "",
   fraudThreshold: 0.7,
   smsOptIn: false,
+  first_name: "",
+  last_name: "",
+  cc_num: "",
+  gender: "",
+  date_of_birth: "",
+  job: "",
+  city: "",
+  state: "",
+  zip: "",
+  street: ""
 });
 
 const KNOWN_RISK_KEYS = [
@@ -250,7 +260,13 @@ function HomePage({ apiUrl }) {
 
     setIsAccountBusy(true);
     try {
-      const response = await axios.post(buildEndpoint("/accounts"), accountForm);
+      console.log("Sending account data:", accountForm);
+      console.log("JSON stringified:", JSON.stringify(accountForm));
+      const response = await axios.post(buildEndpoint("/accounts"), accountForm, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
       const { accountId, fraudThreshold } = response.data;
       setLoggedInAccount({ accountId, fraudThreshold });
       setLoginForm({ accountId, password: "" });
@@ -736,27 +752,111 @@ function HomePage({ apiUrl }) {
                     }}
                   >
                     <label className="form-field compact">
-                      <span>Name</span>
+                      <span>Username</span>
                       <input
                         type="text"
-                        value={accountForm.name}
-                        onChange={(event) => handleAccountFieldChange("name", event.target.value)}
+                        value={accountForm.username}
+                        onChange={(event) => handleAccountFieldChange("username", event.target.value)}
                       />
                     </label>
                     <label className="form-field compact">
-                      <span>Address</span>
+                      <span>Email</span>
+                      <input
+                        type="email"
+                        value={accountForm.email}
+                        onChange={(event) => handleAccountFieldChange("email", event.target.value)}
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>First Name</span>
+                      <input
+                        type="text"
+                        value={accountForm.first_name}
+                        onChange={(event) => handleAccountFieldChange("first_name", event.target.value)}
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>Last Name</span>
+                      <input
+                        type="text"
+                        value={accountForm.last_name}
+                        onChange={(event) => handleAccountFieldChange("last_name", event.target.value)}
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>Credit Card Number</span>
+                      <input
+                        type="text"
+                        value={accountForm.cc_num}
+                        onChange={(event) => handleAccountFieldChange("cc_num", event.target.value)}
+                        maxLength="16"
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>Gender (M/F)</span>
+                      <input
+                        type="text"
+                        value={accountForm.gender}
+                        onChange={(event) => handleAccountFieldChange("gender", event.target.value.toUpperCase())}
+                        maxLength="1"
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>Date of Birth (YYYY-MM-DD)</span>
+                      <input
+                        type="date"
+                        value={accountForm.date_of_birth}
+                        onChange={(event) => handleAccountFieldChange("date_of_birth", event.target.value)}
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>Job/Occupation</span>
+                      <input
+                        type="text"
+                        value={accountForm.job}
+                        onChange={(event) => handleAccountFieldChange("job", event.target.value)}
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>Street Address</span>
+                      <input
+                        type="text"
+                        value={accountForm.street}
+                        onChange={(event) => handleAccountFieldChange("street", event.target.value)}
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>City</span>
+                      <input
+                        type="text"
+                        value={accountForm.city}
+                        onChange={(event) => handleAccountFieldChange("city", event.target.value)}
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>State</span>
+                      <input
+                        type="text"
+                        value={accountForm.state}
+                        onChange={(event) => handleAccountFieldChange("state", event.target.value.toUpperCase())}
+                        maxLength="2"
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>ZIP Code</span>
+                      <input
+                        type="text"
+                        value={accountForm.zip}
+                        onChange={(event) => handleAccountFieldChange("zip", event.target.value)}
+                        maxLength="5"
+                      />
+                    </label>
+                    <label className="form-field compact">
+                      <span>Full Mailing Address</span>
                       <input
                         type="text"
                         value={accountForm.address}
                         onChange={(event) => handleAccountFieldChange("address", event.target.value)}
-                      />
-                    </label>
-                    <label className="form-field compact">
-                      <span>Needs</span>
-                      <input
-                        type="text"
-                        value={accountForm.needs}
-                        onChange={(event) => handleAccountFieldChange("needs", event.target.value)}
                       />
                     </label>
                     <label className="form-field compact">

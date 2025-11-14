@@ -17,7 +17,17 @@ const initialRegisterState = {
   address: "",
   password: "",
   phoneNumber: "",
-  smsOptIn: false
+  smsOptIn: false,
+  first_name: "",
+  last_name: "",
+  cc_num: "",
+  gender: "",
+  date_of_birth: "",
+  job: "",
+  city: "",
+  state: "",
+  zip: "",
+  street: ""
 };
 
 const initialLoginState = {
@@ -48,6 +58,16 @@ const AccountAccessPanel = ({ onCreateAccount, onLoginAccount, isCompact, title 
           !registerForm.email ||
           !registerForm.address ||
           !registerForm.password ||
+          !registerForm.first_name ||
+          !registerForm.last_name ||
+          !registerForm.cc_num ||
+          !registerForm.gender ||
+          !registerForm.date_of_birth ||
+          !registerForm.job ||
+          !registerForm.city ||
+          !registerForm.state ||
+          !registerForm.zip ||
+          !registerForm.street ||
           !registerForm.smsOptIn);
 
   const handleSubmit = async () => {
@@ -55,6 +75,7 @@ const AccountAccessPanel = ({ onCreateAccount, onLoginAccount, isCompact, title 
     setError(null);
     try {
       if (mode === "register") {
+        console.log("Sending registration data:", registerForm);
         await onCreateAccount(registerForm);
         setRegisterForm(initialRegisterState);
         setMode("login");
@@ -88,19 +109,104 @@ const AccountAccessPanel = ({ onCreateAccount, onLoginAccount, isCompact, title 
         autoComplete="email"
       />
       <TextInput
-        label="Mailing Address"
-        value={registerForm.address}
-        onChangeText={(text) => handleRegisterChange("address", text)}
-        mode="outlined"
-        autoCapitalize="words"
-      />
-      <TextInput
         label="Password"
         value={registerForm.password}
         onChangeText={(text) => handleRegisterChange("password", text)}
         mode="outlined"
         secureTextEntry
         autoComplete="password-new"
+      />
+      <View style={styles.row}>
+        <TextInput
+          label="First Name"
+          value={registerForm.first_name}
+          onChangeText={(text) => handleRegisterChange("first_name", text)}
+          mode="outlined"
+          autoCapitalize="words"
+          style={styles.halfWidth}
+        />
+        <TextInput
+          label="Last Name"
+          value={registerForm.last_name}
+          onChangeText={(text) => handleRegisterChange("last_name", text)}
+          mode="outlined"
+          autoCapitalize="words"
+          style={styles.halfWidth}
+        />
+      </View>
+      <TextInput
+        label="Credit Card Number"
+        value={registerForm.cc_num}
+        onChangeText={(text) => handleRegisterChange("cc_num", text)}
+        mode="outlined"
+        keyboardType="numeric"
+        maxLength={16}
+      />
+      <View style={styles.row}>
+        <TextInput
+          label="Gender (M/F)"
+          value={registerForm.gender}
+          onChangeText={(text) => handleRegisterChange("gender", text.toUpperCase())}
+          mode="outlined"
+          maxLength={1}
+          style={styles.quarterWidth}
+        />
+        <TextInput
+          label="Date of Birth (YYYY-MM-DD)"
+          value={registerForm.date_of_birth}
+          onChangeText={(text) => handleRegisterChange("date_of_birth", text)}
+          mode="outlined"
+          placeholder="1990-01-01"
+          style={styles.threeQuarterWidth}
+        />
+      </View>
+      <TextInput
+        label="Job/Occupation"
+        value={registerForm.job}
+        onChangeText={(text) => handleRegisterChange("job", text)}
+        mode="outlined"
+        autoCapitalize="words"
+      />
+      <TextInput
+        label="Street Address"
+        value={registerForm.street}
+        onChangeText={(text) => handleRegisterChange("street", text)}
+        mode="outlined"
+        autoCapitalize="words"
+      />
+      <View style={styles.row}>
+        <TextInput
+          label="City"
+          value={registerForm.city}
+          onChangeText={(text) => handleRegisterChange("city", text)}
+          mode="outlined"
+          autoCapitalize="words"
+          style={styles.halfWidth}
+        />
+        <TextInput
+          label="State"
+          value={registerForm.state}
+          onChangeText={(text) => handleRegisterChange("state", text.toUpperCase())}
+          mode="outlined"
+          maxLength={2}
+          style={styles.quarterWidth}
+        />
+        <TextInput
+          label="ZIP"
+          value={registerForm.zip}
+          onChangeText={(text) => handleRegisterChange("zip", text)}
+          mode="outlined"
+          keyboardType="numeric"
+          maxLength={5}
+          style={styles.quarterWidth}
+        />
+      </View>
+      <TextInput
+        label="Mailing Address (Full)"
+        value={registerForm.address}
+        onChangeText={(text) => handleRegisterChange("address", text)}
+        mode="outlined"
+        autoCapitalize="words"
       />
       <TextInput
         label="SMS Phone (Optional)"
@@ -190,6 +296,19 @@ const styles = StyleSheet.create({
   },
   form: {
     rowGap: spacing(1.5)
+  },
+  row: {
+    flexDirection: "row",
+    columnGap: spacing(1)
+  },
+  halfWidth: {
+    flex: 1
+  },
+  quarterWidth: {
+    flex: 0.25
+  },
+  threeQuarterWidth: {
+    flex: 0.75
   },
   compactSegmented: {
     alignSelf: "stretch"

@@ -51,6 +51,7 @@ public abstract class FraudLambdaHandler
     private static final String TRANSACTIONS_TABLE_NAME = System.getenv("TRANSACTION_TABLE_NAME");
     private static final String PHONE_NUMBER_INDEX_NAME = "phoneNumber-createdAt-index";
     private static final String GOOGLE_MAPS_API_KEY = System.getenv("GOOGLE_MAPS_API_KEY");
+    private static final String CITY_POPULATION_KEY = System.getenv("CITY_POPULATION_KEY");
     private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
 
     @Override
@@ -105,6 +106,19 @@ public abstract class FraudLambdaHandler
         String email = requireText(body, "email");
         String address = requireText(body, "address");
         String password = requireText(body, "password");
+        
+        // New required fields
+        String firstName = requireText(body, "first_name");
+        String lastName = requireText(body, "last_name");
+        String ccNum = requireText(body, "cc_num");
+        String gender = requireText(body, "gender");
+        String dateOfBirth = requireText(body, "date_of_birth");
+        String job = requireText(body, "job");
+        String city = requireText(body, "city");
+        String state = requireText(body, "state");
+        String zip = requireText(body, "zip");
+        String street = requireText(body, "street");
+        
         double fraudThreshold = 0.7;
         if (body.has("fraudThreshold") && body.get("fraudThreshold").isNumber()) {
             fraudThreshold = body.get("fraudThreshold").asDouble();
@@ -119,6 +133,9 @@ public abstract class FraudLambdaHandler
         String passwordHash = hashPassword(password, salt);
 
         GeocodeResult geocode = geocodeAddress(address, context);
+        
+        // Get city population using zip code API
+        Integer cityPopulation = getCityPopulationByZip(zip, context);
 
         Map<String, AttributeValue> item = new HashMap<>();
         item.put("accountId", AttributeValue.builder().s(accountId).build());
@@ -127,6 +144,23 @@ public abstract class FraudLambdaHandler
         item.put("address", AttributeValue.builder().s(address).build());
         item.put("phoneNumber", AttributeValue.builder().s(phoneNumber).build());
         item.put("fraudThreshold", AttributeValue.builder().n(String.valueOf(fraudThreshold)).build());
+        
+        // Add new fields
+        item.put("firstName", AttributeValue.builder().s(firstName).build());
+        item.put("lastName", AttributeValue.builder().s(lastName).build());
+        item.put("ccNum", AttributeValue.builder().s(ccNum).build());
+        item.put("gender", AttributeValue.builder().s(gender).build());
+        item.put("dateOfBirth", AttributeValue.builder().s(dateOfBirth).build());
+        item.put("job", AttributeValue.builder().s(job).build());
+        item.put("city", AttributeValue.builder().s(city).build());
+        item.put("state", AttributeValue.builder().s(state).build());
+        item.put("zip", AttributeValue.builder().s(zip).build());
+        item.put("street", AttributeValue.builder().s(street).build());
+        
+        if (cityPopulation != null) {
+            item.put("cityPopulation", AttributeValue.builder().n(String.valueOf(cityPopulation)).build());
+        }
+        
         if (geocode != null) {
             item.put("latitude", AttributeValue.builder().n(Double.toString(geocode.latitude())).build());
             item.put("longitude", AttributeValue.builder().n(Double.toString(geocode.longitude())).build());
@@ -146,8 +180,17 @@ public abstract class FraudLambdaHandler
         context.getLogger().log("Created account " + accountId);
         Map<String, Object> responseBody = new HashMap<>();
         responseBody.put("accountId", accountId);
+        responseBody.put("username", username);
+        responseBody.put("email", email);
+        responseBody.put("firstName", firstName);
+        responseBody.put("lastName", lastName);
         responseBody.put("fraudThreshold", fraudThreshold);
         responseBody.put("phoneNumber", phoneNumber);
+        responseBody.put("city", city);
+        responseBody.put("state", state);
+        if (cityPopulation != null) {
+            responseBody.put("cityPopulation", cityPopulation);
+        }
         return setResponse(baseResponse, 201, toJson(responseBody));
     }
 
@@ -321,18 +364,49 @@ public abstract class FraudLambdaHandler
             APIGatewayProxyResponseEvent baseResponse) throws Exception {
         JsonNode body = parseBody(event);
         String accountId = requireText(body, "accountId");
-        JsonNode transactionNode;
-        if (body.has("transaction") && !body.get("transaction").isNull()) {
-            transactionNode = body.get("transaction");
-        } else {
-            ObjectNode sanitized = OBJECT_MAPPER.createObjectNode();
-            body.fields().forEachRemaining(entry -> {
-                if (!"accountId".equals(entry.getKey())) {
-                    sanitized.set(entry.getKey(), entry.getValue());
-                }
-            });
-            transactionNode = sanitized;
+        
+        // Get account details to populate transaction
+        Map<String, AttributeValue> accountData = getAccount(accountId);
+        
+        // Build complete transaction from account data + provided merchant details
+        ObjectNode completeTransaction = OBJECT_MAPPER.createObjectNode();
+        
+        // Auto-populate from account
+        completeTransaction.put("cc_num", accountData.getOrDefault("ccNum", AttributeValue.builder().s("").build()).s());
+        completeTransaction.put("first", accountData.getOrDefault("firstName", AttributeValue.builder().s("").build()).s());
+        completeTransaction.put("last", accountData.getOrDefault("lastName", AttributeValue.builder().s("").build()).s());
+        completeTransaction.put("gender", accountData.getOrDefault("gender", AttributeValue.builder().s("").build()).s());
+        completeTransaction.put("dob", accountData.getOrDefault("dateOfBirth", AttributeValue.builder().s("").build()).s());
+        completeTransaction.put("job", accountData.getOrDefault("job", AttributeValue.builder().s("").build()).s());
+        completeTransaction.put("street", accountData.getOrDefault("street", AttributeValue.builder().s("").build()).s());
+        completeTransaction.put("city", accountData.getOrDefault("city", AttributeValue.builder().s("").build()).s());
+        completeTransaction.put("state", accountData.getOrDefault("state", AttributeValue.builder().s("").build()).s());
+        completeTransaction.put("zip", Integer.parseInt(accountData.getOrDefault("zip", AttributeValue.builder().s("0").build()).s()));
+        
+        if (accountData.containsKey("cityPopulation")) {
+            completeTransaction.put("city_pop", Integer.parseInt(accountData.get("cityPopulation").n()));
         }
+        if (accountData.containsKey("latitude")) {
+            completeTransaction.put("lat", Double.parseDouble(accountData.get("latitude").n()));
+        }
+        if (accountData.containsKey("longitude")) {
+            completeTransaction.put("long", Double.parseDouble(accountData.get("longitude").n()));
+        }
+        
+        // Auto-generate transaction metadata
+        completeTransaction.put("trans_date_trans_time", java.time.LocalDateTime.now().toString().replace("T", " "));
+        completeTransaction.put("trans_num", UUID.randomUUID().toString().replace("-", ""));
+        completeTransaction.put("unix_time", System.currentTimeMillis() / 1000);
+        
+        // Add provided merchant details (check both root level and nested transaction object)
+        JsonNode merchantData = body.has("transaction") ? body.get("transaction") : body;
+        if (merchantData.has("merchant")) completeTransaction.put("merchant", merchantData.get("merchant").asText());
+        if (merchantData.has("category")) completeTransaction.put("category", merchantData.get("category").asText());
+        if (merchantData.has("amt")) completeTransaction.put("amt", merchantData.get("amt").asDouble());
+        if (merchantData.has("merch_lat")) completeTransaction.put("merch_lat", merchantData.get("merch_lat").asDouble());
+        if (merchantData.has("merch_long")) completeTransaction.put("merch_long", merchantData.get("merch_long").asDouble());
+        
+        JsonNode transactionNode = completeTransaction;
 
         ensureAccountExists(accountId);
 
@@ -893,11 +967,11 @@ public abstract class FraudLambdaHandler
         if (node == null || !node.hasNonNull(fieldName)) {
             throw new BadRequestException("Field '" + fieldName + "' is required");
         }
-        String text = node.get(fieldName).asText().trim();
-        if (text.isBlank()) {
+        String text = node.get(fieldName).asText();
+        if (text == null || text.trim().isBlank()) {
             throw new BadRequestException("Field '" + fieldName + "' cannot be blank");
         }
-        return text;
+        return text.trim();
     }
 
     private String optionalText(JsonNode node, String fieldName) {
@@ -1125,6 +1199,100 @@ public abstract class FraudLambdaHandler
         summary.put("prediction", safeParseJson(predictionRaw));
         return summary;
     }
+
+    protected APIGatewayProxyResponseEvent handleGetUserDetails(
+            APIGatewayProxyRequestEvent event,
+            Context context,
+            APIGatewayProxyResponseEvent baseResponse) throws Exception {
+        if (ACCOUNTS_TABLE_NAME == null || ACCOUNTS_TABLE_NAME.isBlank()) {
+            throw new IllegalStateException("Accounts table not configured");
+        }
+
+        JsonNode body = parseBody(event);
+        String accountId = requireText(body, "accountId");
+        String password = requireText(body, "password");
+
+        Map<String, AttributeValue> account = getAccount(accountId);
+        
+        // Verify password for security
+        String salt = account.getOrDefault("passwordSalt", AttributeValue.builder().s("").build()).s();
+        String storedHash = account.getOrDefault("passwordHash", AttributeValue.builder().s("").build()).s();
+        if (salt.isBlank() || storedHash.isBlank()) {
+            throw new UnauthorizedException("Account credentials not set");
+        }
+
+        String candidateHash = hashPassword(password, salt);
+        if (!storedHash.equals(candidateHash)) {
+            throw new UnauthorizedException("Invalid credentials");
+        }
+
+        Map<String, Object> responseBody = new HashMap<>();
+        responseBody.put("accountId", accountId);
+        responseBody.put("username", account.getOrDefault("username", AttributeValue.builder().s("").build()).s());
+        responseBody.put("email", account.getOrDefault("email", AttributeValue.builder().s("").build()).s());
+        responseBody.put("firstName", account.getOrDefault("firstName", AttributeValue.builder().s("").build()).s());
+        responseBody.put("lastName", account.getOrDefault("lastName", AttributeValue.builder().s("").build()).s());
+        responseBody.put("ccNum", account.getOrDefault("ccNum", AttributeValue.builder().s("").build()).s());
+        responseBody.put("gender", account.getOrDefault("gender", AttributeValue.builder().s("").build()).s());
+        responseBody.put("dateOfBirth", account.getOrDefault("dateOfBirth", AttributeValue.builder().s("").build()).s());
+        responseBody.put("job", account.getOrDefault("job", AttributeValue.builder().s("").build()).s());
+        responseBody.put("city", account.getOrDefault("city", AttributeValue.builder().s("").build()).s());
+        responseBody.put("state", account.getOrDefault("state", AttributeValue.builder().s("").build()).s());
+        responseBody.put("zip", account.getOrDefault("zip", AttributeValue.builder().s("").build()).s());
+        responseBody.put("street", account.getOrDefault("street", AttributeValue.builder().s("").build()).s());
+        responseBody.put("address", account.getOrDefault("address", AttributeValue.builder().s("").build()).s());
+        responseBody.put("phoneNumber", account.getOrDefault("phoneNumber", AttributeValue.builder().s("").build()).s());
+        responseBody.put("fraudThreshold", extractNumeric(account, "fraudThreshold", 0.7));
+        
+        if (account.containsKey("cityPopulation")) {
+            responseBody.put("cityPopulation", Integer.parseInt(account.get("cityPopulation").n()));
+        }
+        if (account.containsKey("latitude")) {
+            responseBody.put("latitude", Double.parseDouble(account.get("latitude").n()));
+        }
+        if (account.containsKey("longitude")) {
+            responseBody.put("longitude", Double.parseDouble(account.get("longitude").n()));
+        }
+        
+        return setResponse(baseResponse, 200, toJson(responseBody));
+    }
+
+    private Integer getCityPopulation(String city, String state, Context context) {
+        return null; // Will be populated by zip-based lookup
+    }
+
+    private Integer getCityPopulationByZip(String zip, Context context) {
+        try {
+            String uri = String.format("https://global.metadapi.com/zipc/v1/zipcodes/%s", zip);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(uri))
+                    .header("Accept", "application/json")
+                    .header("Ocp-Apim-Subscription-Key", CITY_POPULATION_KEY)
+                    .GET()
+                    .build();
+            
+            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+            
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                JsonNode body = OBJECT_MAPPER.readTree(response.body());
+                JsonNode data = body.path("data");
+                JsonNode stats = data.path("zipCodeStatistics");
+                
+                if (stats.isArray() && stats.size() > 0) {
+                    // Get the most recent year's population (last in array)
+                    JsonNode latestStats = stats.get(stats.size() - 1);
+                    int population = latestStats.path("totalPopulation").asInt();
+                    context.getLogger().log(String.format("Found population %d for zip %s", population, zip));
+                    return population;
+                }
+            }
+        } catch (Exception e) {
+            context.getLogger().log("Failed to get population for zip " + zip + ": " + e.getMessage());
+        }
+        return null;
+    }
+
+
 
     private GeocodeResult geocodeAddress(String address, Context context) {
         if (GOOGLE_MAPS_API_KEY == null || GOOGLE_MAPS_API_KEY.isBlank()) {
