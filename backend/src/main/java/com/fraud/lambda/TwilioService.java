@@ -34,7 +34,6 @@ public class TwilioService {
      * 
      * @param toPhoneNumber     Customer's phone number (e.g., "+15551234567")
      * @param transactionId     Unique transaction identifier
-     * @param fraudScore        Fraud prediction score (0.0 to 1.0)
      * @param transactionAmount Transaction amount
      * @param location          Transaction location
      * @return Message SID if successful, null if failed
@@ -80,7 +79,6 @@ public class TwilioService {
 
     /**
      * Parse the incoming SMS response from a customer
-     * TODO: Revise after getting approved by Twilio
      * 
      * @param messageBody The text content of the SMS reply
      * @return true if user confirmed fraud, false if legitimate, null if unclear
