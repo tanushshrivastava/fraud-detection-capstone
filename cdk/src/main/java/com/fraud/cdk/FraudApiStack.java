@@ -30,7 +30,8 @@ public class FraudApiStack extends Stack {
             final Function getRecentTransactionsHandler,
             final Function submitTransactionHandler,
             final Function twilioWebhookHandler,
-            final Function getUserDetailsHandler) {
+            final Function getUserDetailsHandler,
+            final Function sendEmailHandler) {
         this(
             scope,
             id,
@@ -42,7 +43,8 @@ public class FraudApiStack extends Stack {
             getRecentTransactionsHandler,
             submitTransactionHandler,
             twilioWebhookHandler,
-            getUserDetailsHandler);
+            getUserDetailsHandler,
+            sendEmailHandler);
     }
 
     public FraudApiStack(
@@ -56,7 +58,8 @@ public class FraudApiStack extends Stack {
             final Function getRecentTransactionsHandler,
             final Function submitTransactionHandler,
             final Function twilioWebhookHandler,
-            final Function getUserDetailsHandler) {
+            final Function getUserDetailsHandler,
+            final Function sendEmailHandler) {
         super(scope, id, props);
         Objects.requireNonNull(createAccountHandler, "createAccountHandler is required");
         Objects.requireNonNull(loginHandler, "loginHandler is required");
@@ -65,6 +68,7 @@ public class FraudApiStack extends Stack {
         Objects.requireNonNull(submitTransactionHandler, "submitTransactionHandler is required");
         Objects.requireNonNull(twilioWebhookHandler, "twilioWebhookHandler is required");
         Objects.requireNonNull(getUserDetailsHandler, "getUserDetailsHandler is required");
+        Objects.requireNonNull(sendEmailHandler, "sendEmailHandler is required");
 
         String restApiName = env.stackSuffix().isBlank()
             ? "FraudDetectionApi"
@@ -107,6 +111,9 @@ public class FraudApiStack extends Stack {
 
         Resource userDetails = api.getRoot().addResource("user-details");
         userDetails.addMethod("POST", new LambdaIntegration(getUserDetailsHandler));
+
+        Resource sendEmail = api.getRoot().addResource("send-email");
+        sendEmail.addMethod("POST", new LambdaIntegration(sendEmailHandler));
 
         CfnOutput.Builder.create(this, "ApiEndpoint")
             .value(api.getUrl())

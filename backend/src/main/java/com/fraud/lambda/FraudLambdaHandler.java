@@ -951,7 +951,7 @@ public abstract class FraudLambdaHandler
         return data;
     }
 
-    private JsonNode parseBody(APIGatewayProxyRequestEvent event) throws Exception {
+    protected JsonNode parseBody(APIGatewayProxyRequestEvent event) throws Exception {
         String body = event.getBody();
         if (body == null || body.isBlank()) {
             throw new BadRequestException("Request body is required");
@@ -963,7 +963,7 @@ public abstract class FraudLambdaHandler
         }
     }
 
-    private String requireText(JsonNode node, String fieldName) {
+    protected String requireText(JsonNode node, String fieldName) {
         if (node == null || !node.hasNonNull(fieldName)) {
             throw new BadRequestException("Field '" + fieldName + "' is required");
         }
@@ -974,7 +974,7 @@ public abstract class FraudLambdaHandler
         return text.trim();
     }
 
-    private String optionalText(JsonNode node, String fieldName) {
+    protected String optionalText(JsonNode node, String fieldName) {
         if (node == null || !node.has(fieldName) || node.get(fieldName).isNull()) {
             return null;
         }

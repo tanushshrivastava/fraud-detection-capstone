@@ -91,3 +91,12 @@ export const fetchRecentTransactions = async (accountId, limit = 10) => {
     throw buildError(error);
   }
 };
+
+export const sendEmail = async (payload) => {
+  try {
+    const response = await client.post("/send-email", payload);
+    return response.data;
+  } catch (error) {
+    throw buildError(error);
+  }
+};
