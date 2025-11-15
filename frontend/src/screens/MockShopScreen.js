@@ -29,7 +29,7 @@ const MockShopScreen = () => {
     try {
       // Test payload - will be replaced with actual transaction data later
       const testPayload = {
-        to: "capitalonecapstone@gmail.com",
+        to: "newcscapstone@gmail.com",
         subject: "Mock Shop Test Transaction",
         body: "This is a test email from the Mock Shop feature. Future emails will contain full transaction details."
       };
@@ -76,15 +76,19 @@ const MockShopScreen = () => {
             {message ? (
               <View style={[
                 styles.messageBox,
-                { backgroundColor: messageType === "success" ? "#E8F5E9" :
-                                    messageType === "error" ? "#FFEBEE" :
-                                    "#E3F2FD" }
+                {
+                  backgroundColor: messageType === "success" ? "#E8F5E9" :
+                    messageType === "error" ? "#FFEBEE" :
+                      "#E3F2FD"
+                }
               ]}>
                 <Text style={[
                   styles.messageText,
-                  { color: messageType === "success" ? palette.success :
-                            messageType === "error" ? palette.error :
-                            palette.primary }
+                  {
+                    color: messageType === "success" ? palette.success :
+                      messageType === "error" ? palette.error :
+                        palette.primary
+                  }
                 ]}>
                   {message}
                 </Text>
