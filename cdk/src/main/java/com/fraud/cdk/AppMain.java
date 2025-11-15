@@ -71,7 +71,8 @@ public class AppMain {
             lambdaStack.getGetRecentTransactionsFunction(),
             lambdaStack.getSubmitTransactionFunction(),
             lambdaStack.getTwilioWebhookFunction(),
-            lambdaStack.getUserDetailsFunction()
+            lambdaStack.getUserDetailsFunction(),
+            lambdaStack.getSendEmailFunction()
         );
 
         // Express dependencies so CDK deploys stacks in the correct order.

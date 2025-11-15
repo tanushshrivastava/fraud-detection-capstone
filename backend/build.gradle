@@ -26,6 +26,7 @@ dependencies {
 
     implementation("software.amazon.awssdk:dynamodb-enhanced")
     implementation "software.amazon.awssdk:s3"
+    implementation "software.amazon.awssdk:ses"
 
     implementation "com.amazonaws:aws-lambda-java-core:1.2.3"
     implementation "com.amazonaws:aws-lambda-java-events:3.11.3"

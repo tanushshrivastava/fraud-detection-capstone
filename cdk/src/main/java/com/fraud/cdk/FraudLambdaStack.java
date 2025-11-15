@@ -31,6 +31,7 @@ public class FraudLambdaStack extends Stack {
     private final Function submitTransactionFunction;
     private final Function twilioWebhookFunction;
     private final Function getUserDetailsFunction;
+    private final Function sendEmailFunction;
 
     public FraudLambdaStack(final Construct scope, final String id, final FraudLambdaStackProps lambdaProps) {
         this(scope, id, null, lambdaProps);
@@ -48,8 +49,8 @@ public class FraudLambdaStack extends Stack {
         this.createAccountFunction = buildFunction(
             "CreateAccountLambda",
             "com.fraud.lambda.CreateAccountHandler::handleRequest",
-            createRole("CreateAccountLambdaRole", false),
-            buildEnvironment(lambdaProps, false, false, true, false, true),
+            createRole("CreateAccountLambdaRole", false, false),
+            buildEnvironment(lambdaProps, false, false, true, false, true, false),
             lambdaCode);
         if (accountsTable != null) {
             accountsTable.grantReadWriteData(createAccountFunction);
@@ -60,8 +61,8 @@ public class FraudLambdaStack extends Stack {
         this.loginFunction = buildFunction(
             "LoginLambda",
             "com.fraud.lambda.LoginHandler::handleRequest",
-            createRole("LoginLambdaRole", false),
-            buildEnvironment(lambdaProps, false, true, true, false, false),
+            createRole("LoginLambdaRole", false, false),
+            buildEnvironment(lambdaProps, false, true, true, false, false, false),
             lambdaCode);
         if (accountsTable != null) {
             accountsTable.grantReadData(loginFunction);
@@ -75,8 +76,8 @@ public class FraudLambdaStack extends Stack {
         this.updateAccountSettingsFunction = buildFunction(
             "UpdateAccountSettingsLambda",
             "com.fraud.lambda.UpdateAccountSettingsHandler::handleRequest",
-            createRole("UpdateAccountSettingsLambdaRole", false),
-            buildEnvironment(lambdaProps, false, false, true, false, false),
+            createRole("UpdateAccountSettingsLambdaRole", false, false),
+            buildEnvironment(lambdaProps, false, false, true, false, false, false),
             lambdaCode);
         if (accountsTable != null) {
             accountsTable.grantReadWriteData(updateAccountSettingsFunction);
@@ -87,8 +88,8 @@ public class FraudLambdaStack extends Stack {
         this.getRecentTransactionsFunction = buildFunction(
             "GetRecentTransactionsLambda",
             "com.fraud.lambda.GetRecentTransactionsHandler::handleRequest",
-            createRole("GetRecentTransactionsLambdaRole", false),
-            buildEnvironment(lambdaProps, false, true, true, false, false),
+            createRole("GetRecentTransactionsLambdaRole", false, false),
+            buildEnvironment(lambdaProps, false, true, true, false, false, false),
             lambdaCode);
         if (accountsTable != null) {
             accountsTable.grantReadData(getRecentTransactionsFunction);
@@ -102,8 +103,8 @@ public class FraudLambdaStack extends Stack {
         this.submitTransactionFunction = buildFunction(
             "SubmitTransactionLambda",
             "com.fraud.lambda.SubmitTransactionHandler::handleRequest",
-            createRole("SubmitTransactionLambdaRole", true),
-            buildEnvironment(lambdaProps, true, true, true, true, false),
+            createRole("SubmitTransactionLambdaRole", true, false),
+            buildEnvironment(lambdaProps, true, true, true, true, false, false),
             lambdaCode);
         if (accountsTable != null) {
             accountsTable.grantReadWriteData(submitTransactionFunction);
@@ -117,8 +118,8 @@ public class FraudLambdaStack extends Stack {
         this.twilioWebhookFunction = buildFunction(
             "TwilioWebhookLambda",
             "com.fraud.lambda.TwilioWebhookHandler::handleRequest",
-            createRole("TwilioWebhookLambdaRole", false),
-            buildEnvironment(lambdaProps, false, true, false, true, false),
+            createRole("TwilioWebhookLambdaRole", false, false),
+            buildEnvironment(lambdaProps, false, true, false, true, false, false),
             lambdaCode);
         if (transactionsTable != null) {
             transactionsTable.grantReadWriteData(twilioWebhookFunction);
@@ -129,14 +130,23 @@ public class FraudLambdaStack extends Stack {
         this.getUserDetailsFunction = buildFunction(
             "GetUserDetailsLambda",
             "com.fraud.lambda.GetUserDetailsHandler::handleRequest",
-            createRole("GetUserDetailsLambdaRole", false),
-            buildEnvironment(lambdaProps, false, false, true, false, false),
+            createRole("GetUserDetailsLambdaRole", false, false),
+            buildEnvironment(lambdaProps, false, false, true, false, false, false),
             lambdaCode);
         if (accountsTable != null) {
             accountsTable.grantReadData(getUserDetailsFunction);
         }
         outputFunction("GetUserDetailsLambdaFunctionName", getUserDetailsFunction,
             "Handles POST /user-details requests.");
+
+        this.sendEmailFunction = buildFunction(
+            "SendEmailLambda",
+            "com.fraud.lambda.SendEmailHandler::handleRequest",
+            createRole("SendEmailLambdaRole", false, true),
+            buildEnvironment(lambdaProps, false, false, false, false, false, true),
+            lambdaCode);
+        outputFunction("SendEmailLambdaFunctionName", sendEmailFunction,
+            "Handles POST /send-email requests.");
     }
 
     public Function getCreateAccountFunction() {
@@ -167,6 +177,10 @@ public class FraudLambdaStack extends Stack {
         return getUserDetailsFunction;
     }
 
+    public Function getSendEmailFunction() {
+        return sendEmailFunction;
+    }
+
     private Function buildFunction(
             String id,
             String handler,
@@ -184,11 +198,14 @@ public class FraudLambdaStack extends Stack {
             .build();
     }
 
-    private Role createRole(String id, boolean includeSagemaker) {
+    private Role createRole(String id, boolean includeSagemaker, boolean includeSes) {
         List<IManagedPolicy> policies = new ArrayList<>();
         policies.add(ManagedPolicy.fromAwsManagedPolicyName("service-role/AWSLambdaBasicExecutionRole"));
         if (includeSagemaker) {
             policies.add(ManagedPolicy.fromAwsManagedPolicyName("AmazonSageMakerFullAccess"));
+        }
+        if (includeSes) {
+            policies.add(ManagedPolicy.fromAwsManagedPolicyName("AmazonSESFullAccess"));
         }
         return Role.Builder.create(this, id)
             .assumedBy(new ServicePrincipal("lambda.amazonaws.com"))
@@ -202,7 +219,8 @@ public class FraudLambdaStack extends Stack {
             boolean includeTransactionsTable,
             boolean includeAccountsTable,
             boolean includeTwilio,
-            boolean includeGoogleMaps) {
+            boolean includeGoogleMaps,
+            boolean includeFromEmail) {
         Map<String, String> environment = new HashMap<>();
         if (includeEndpoint) {
             environment.put("SAGEMAKER_ENDPOINT_NAME", props.endpointName());
@@ -221,6 +239,9 @@ public class FraudLambdaStack extends Stack {
         if (includeGoogleMaps) {
             EnvConfig.get("GOOGLE_MAPS_API_KEY").ifPresent(key -> environment.put("GOOGLE_MAPS_API_KEY", key));
             EnvConfig.get("CITY_POPULATION_KEY").ifPresent(key -> environment.put("CITY_POPULATION_KEY", key));
+        }
+        if (includeFromEmail) {
+            EnvConfig.get("FROM_EMAIL").ifPresent(email -> environment.put("FROM_EMAIL", email));
         }
         return environment;
     }

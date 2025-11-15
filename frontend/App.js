@@ -8,6 +8,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 import DashboardScreen from "@/screens/DashboardScreen";
 import TeamScreen from "@/screens/TeamScreen";
+import MockShopScreen from "@/screens/MockShopScreen";
 import { palette } from "@/styles/theme";
 
 export default function App() {
@@ -29,6 +30,7 @@ export default function App() {
   const [index, setIndex] = useState(0);
   const [routes] = useState([
     { key: "dashboard", title: "Dashboard", focusedIcon: "view-dashboard" },
+    { key: "mockshop", title: "Mock Shop", focusedIcon: "shopping" },
     { key: "team", title: "Team", focusedIcon: "account-group" }
   ]);
 
@@ -36,6 +38,7 @@ export default function App() {
     () =>
       BottomNavigation.SceneMap({
         dashboard: DashboardScreen,
+        mockshop: MockShopScreen,
         team: TeamScreen
       }),
     []
