@@ -1,135 +1,434 @@
-import { useState } from "react";
-import { SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
-import { Button, Text, Card, useTheme, ActivityIndicator } from "react-native-paper";
-import { sendEmail } from "@/services/api";
+import { useState, useRef } from "react";
+import { SafeAreaView, ScrollView, StyleSheet, View, Animated, PanResponder } from "react-native";
+import { Button, Card, Text, TextInput, IconButton, useTheme } from "react-native-paper";
 import { palette, spacing } from "@/styles/theme";
+import axios from "axios";
+import Constants from "expo-constants";
 
-/**
- * MockShopScreen
- *
- * Purpose: Simulate a shopping experience that triggers fraud detection.
- * Current: Minimal UI with an email sending button for testing.
- * Future: Will expand to include product listings, cart, and transaction generation.
- *
- * Architecture:
- * - This screen is isolated from the Dashboard authentication flow
- * - Email sending goes through backend API (not client-side)
- * - Designed for easy extension with shopping cart state and product data
- */
-const MockShopScreen = () => {
+const getApiUrl = () => {
+  const expoConfig = Constants.expoConfig ?? Constants.manifest;
+  const extra = expoConfig?.extra ?? {};
+  return extra.apiUrl || "";
+};
+
+
+// Preset stores with realistic data
+const PRESET_STORES = [
+  {
+    id: 1,
+    name: "Nienow PLC",
+    emoji: "🎭",
+    category: "entertainment",
+    amount: 62000.32,
+    lat: 42.771834,
+    long: -90.158365
+  },
+  {
+    id: 2,
+    name: "Amazon",
+    emoji: "📦",
+    category: "shopping",
+    amount: 149.99,
+    lat: 47.6062,
+    long: -122.3321
+  },
+  {
+    id: 3,
+    name: "Starbucks",
+    emoji: "☕",
+    category: "food_dining",
+    amount: 8.50,
+    lat: 43.0731,
+    long: -89.4012
+  },
+  {
+    id: 4,
+    name: "Shell Gas Station",
+    emoji: "⛽",
+    category: "gas_transport",
+    amount: 65.00,
+    lat: 43.0695,
+    long: -89.4124
+  },
+  {
+    id: 5,
+    name: "Target",
+    emoji: "🎯",
+    category: "grocery_pos",
+    amount: 234.56,
+    lat: 43.0747,
+    long: -89.3931
+  }
+];
+
+const MockShopScreen = ({ account, onTransactionComplete }) => {
   const theme = useTheme();
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState("info"); // info, success, error
+  const [currentStoreIndex, setCurrentStoreIndex] = useState(0);
+  const [customStores, setCustomStores] = useState([]);
+  const [isAddingCustom, setIsAddingCustom] = useState(false);
+  const [customStore, setCustomStore] = useState({
+    name: "",
+    category: "",
+    amount: "",
+    lat: "",
+    long: ""
+  });
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [message, setMessage] = useState(null);
 
-  const handleSendEmail = async () => {
-    setLoading(true);
-    setMessage("");
+  // Animation for card swipe
+  const pan = useRef(new Animated.ValueXY()).current;
+  const cardOpacity = useRef(new Animated.Value(1)).current;
+
+  const allStores = [...PRESET_STORES, ...customStores];
+  const currentStore = allStores[currentStoreIndex];
+
+  // Pan responder for drag gesture
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: Animated.event([null, { dx: pan.x, dy: 0 }], {
+        useNativeDriver: false
+      }),
+      onPanResponderRelease: (_, gesture) => {
+        if (Math.abs(gesture.dx) > 120) {
+          // Swipe detected
+          handleSwipe(gesture.dx > 0 ? "right" : "left");
+        } else {
+          // Return to center
+          Animated.spring(pan, {
+            toValue: { x: 0, y: 0 },
+            useNativeDriver: false
+          }).start();
+        }
+      }
+    })
+  ).current;
+
+  const handleSwipe = async (direction) => {
+    // Animate card off screen
+    Animated.parallel([
+      Animated.timing(pan.x, {
+        toValue: direction === "right" ? 500 : -500,
+        duration: 300,
+        useNativeDriver: false
+      }),
+      Animated.timing(cardOpacity, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: false
+      })
+    ]).start(async () => {
+      // Process transaction
+      await processTransaction();
+
+      // Reset card position
+      pan.setValue({ x: 0, y: 0 });
+      cardOpacity.setValue(1);
+    });
+  };
+
+  const processTransaction = async () => {
+    if (!account?.accountId) {
+      setMessage({ type: "error", text: "Please sign in first" });
+      return;
+    }
+
+    setIsProcessing(true);
+    setMessage(null);
 
     try {
-      // Test payload - will be replaced with actual transaction data later
-      const testPayload = {
-        to: "capitalonecapstone@gmail.com",
-        subject: "Mock Shop Test Transaction",
-        body: "This is a test email from the Mock Shop feature. Future emails will contain full transaction details."
+      const transactionData = {
+        amt: currentStore.amount,
+        merchant: currentStore.name,
+        category: currentStore.category,
+        merch_lat: currentStore.lat,
+        merch_long: currentStore.long
       };
 
-      const response = await sendEmail(testPayload);
+      const apiUrl = getApiUrl();
+      if (!apiUrl) {
+        throw new Error("API URL not configured");
+      }
 
-      setMessage(response.message || "Email sent successfully!");
-      setMessageType("success");
+      // Send email via AWS SES Lambda
+      await axios.post(`${apiUrl}/send-email`, {
+        to: "newcscapstone@gmail.com",
+        subject: `Card Swipe at ${currentStore.name}`,
+        body: JSON.stringify(transactionData, null, 2)
+      });
+      
+      setMessage({
+        type: "success",
+        text: `Card swiped at ${currentStore.name}! Email sent.`
+      });
     } catch (error) {
-      setMessage(error.message || "Failed to send email. Please try again.");
-      setMessageType("error");
+      setMessage({ type: "error", text: error.message || "Failed to send email" });
     } finally {
-      setLoading(false);
+      setIsProcessing(false);
     }
   };
 
+  const navigateStore = (direction) => {
+    const newIndex = direction === "next"
+      ? (currentStoreIndex + 1) % allStores.length
+      : (currentStoreIndex - 1 + allStores.length) % allStores.length;
+    setCurrentStoreIndex(newIndex);
+    setMessage(null);
+  };
+
+  const handleAddCustomStore = () => {
+    if (!customStore.name || !customStore.category || !customStore.amount) {
+      setMessage({ type: "error", text: "Please fill in all required fields" });
+      return;
+    }
+
+    const newStore = {
+      id: `custom-${Date.now()}`,
+      name: customStore.name,
+      emoji: "🏪",
+      category: customStore.category,
+      amount: parseFloat(customStore.amount),
+      lat: parseFloat(customStore.lat) || 43.0731,
+      long: parseFloat(customStore.long) || -89.4012
+    };
+
+    setCustomStores([...customStores, newStore]);
+    setCurrentStoreIndex(allStores.length); // Navigate to new store
+    setCustomStore({ name: "", category: "", amount: "", lat: "", long: "" });
+    setIsAddingCustom(false);
+    setMessage({ type: "success", text: "Custom store added!" });
+  };
+
+  if (!account?.accountId) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors?.background ?? palette.background }]}>
+        <View style={styles.emptyState}>
+          <Text variant="headlineSmall" style={styles.emptyTitle}>
+            Sign In Required
+          </Text>
+          <Text variant="bodyMedium" style={styles.emptyText}>
+            Please sign in to use the mock shopping experience.
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView
-      style={[styles.container, { backgroundColor: theme.colors?.background ?? palette.background }]}
-    >
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors?.background ?? palette.background }]}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* Header */}
         <View style={styles.header}>
           <Text variant="headlineSmall" style={styles.title}>
-            Mock Shop
+            Credit Card Simulator
           </Text>
-          <Text variant="bodyMedium" style={styles.subtitle}>
-            Simulate credit card transactions to test fraud detection
+          <Text variant="bodySmall" style={styles.subtitle}>
+            powered by Capital One
           </Text>
         </View>
 
-        <Card style={styles.card}>
+        {/* Store Display */}
+        <View style={styles.storeContainer}>
+          <IconButton
+            icon="chevron-left"
+            size={32}
+            onPress={() => navigateStore("prev")}
+            style={styles.navButton}
+          />
+          <Card style={styles.storeCard}>
+            <Card.Content style={styles.storeContent}>
+              <Text style={styles.storeEmoji}>{currentStore.emoji}</Text>
+              <Text variant="headlineMedium" style={styles.storeName}>
+                {currentStore.name}
+              </Text>
+              <Text variant="bodyMedium" style={styles.storeCategory}>
+                {currentStore.category}
+              </Text>
+            </Card.Content>
+          </Card>
+          <IconButton
+            icon="chevron-right"
+            size={32}
+            onPress={() => navigateStore("next")}
+            style={styles.navButton}
+          />
+        </View>
+
+        {/* Card Reader */}
+        <Card style={styles.readerCard}>
           <Card.Content>
-            <Text variant="titleMedium" style={styles.cardTitle}>
-              Email Test
+            <Text variant="titleMedium" style={styles.readerTitle}>
+              Card Reader
             </Text>
-            <Text variant="bodyMedium" style={styles.cardDescription}>
-              Click the button below to send a test email to the capstone team.
-              This will later be replaced with actual transaction processing.
+            <Text variant="bodySmall" style={styles.readerSubtitle}>
+              Swipe your card to complete purchase
             </Text>
 
-            {message ? (
-              <View style={[
-                styles.messageBox,
-                { backgroundColor: messageType === "success" ? "#E8F5E9" :
-                                    messageType === "error" ? "#FFEBEE" :
-                                    "#E3F2FD" }
-              ]}>
-                <Text style={[
-                  styles.messageText,
-                  { color: messageType === "success" ? palette.success :
-                            messageType === "error" ? palette.error :
-                            palette.primary }
-                ]}>
-                  {message}
-                </Text>
-              </View>
-            ) : null}
+            <View style={styles.swipeArea}>
+              <Text style={styles.swipeText}>Swipe card here</Text>
+            </View>
 
-            <Button
-              mode="contained"
-              onPress={handleSendEmail}
-              disabled={loading}
-              style={styles.button}
-              contentStyle={styles.buttonContent}
-            >
-              {loading ? <ActivityIndicator color="#fff" /> : "Send Email"}
-            </Button>
-          </Card.Content>
-        </Card>
+            <Text variant="headlineMedium" style={styles.amount}>
+              ${currentStore.amount.toFixed(2)}
+            </Text>
+            <Text variant="bodySmall" style={styles.transactionInfo}>
+              {new Date().toLocaleDateString()} | {currentStore.category.toUpperCase()}
+            </Text>
 
-        <Card style={styles.card}>
-          <Card.Content>
-            <Text variant="titleMedium" style={styles.cardTitle}>
-              Coming Soon
-            </Text>
-            <Text variant="bodyMedium" style={styles.cardDescription}>
-              Future features will include:
-            </Text>
-            <View style={styles.featureList}>
-              <Text variant="bodyMedium" style={styles.featureItem}>
-                • Product catalog with prices
-              </Text>
-              <Text variant="bodyMedium" style={styles.featureItem}>
-                • Shopping cart functionality
-              </Text>
-              <Text variant="bodyMedium" style={styles.featureItem}>
-                • Simulated checkout process
-              </Text>
-              <Text variant="bodyMedium" style={styles.featureItem}>
-                • Full transaction metadata generation
-              </Text>
-              <Text variant="bodyMedium" style={styles.featureItem}>
-                • Integration with fraud detection pipeline
-              </Text>
+            <View style={styles.buttonRow}>
+              <Button
+                mode="contained"
+                onPress={() => handleSwipe("left")}
+                disabled={isProcessing}
+                style={styles.swipeButton}
+              >
+                Swipe Left
+              </Button>
+              <Button
+                mode="contained"
+                onPress={() => handleSwipe("right")}
+                disabled={isProcessing}
+                style={styles.swipeButton}
+              >
+                Swipe Right
+              </Button>
             </View>
           </Card.Content>
         </Card>
+
+        {/* Credit Card */}
+        <Animated.View
+          style={[
+            styles.cardContainer,
+            {
+              transform: [{ translateX: pan.x }],
+              opacity: cardOpacity
+            }
+          ]}
+          {...panResponder.panHandlers}
+        >
+          <Card style={styles.creditCard}>
+            <Card.Content>
+              <View style={styles.cardHeader}>
+                <Text variant="titleMedium" style={styles.cardBank}>
+                  Capital One
+                </Text>
+                <IconButton icon="package-variant" size={24} iconColor="#fff" />
+              </View>
+              <View style={styles.cardChip} />
+              <Text variant="titleLarge" style={styles.cardNumber}>
+                {account.ccNum ? account.ccNum.replace(/(\d{4})(?=\d)/g, '$1 ') : "•••• •••• •••• ••••"}
+              </Text>
+              <View style={styles.cardFooter}>
+                <View>
+                  <Text variant="bodySmall" style={styles.cardLabel}>
+                    EXP: {account.dateOfBirth ? account.dateOfBirth.substring(2, 7).replace("-", "/") : "••/••"}
+                  </Text>
+                  <Text variant="bodySmall" style={styles.cardLabel}>
+                    CVV: •••
+                  </Text>
+                </View>
+                <Text variant="titleMedium" style={styles.cardName}>
+                  {account.firstName} {account.lastName}
+                </Text>
+              </View>
+            </Card.Content>
+          </Card>
+        </Animated.View>
+
+        {/* Instructions */}
+        <Card style={styles.instructionsCard}>
+          <Card.Content>
+            <Text variant="titleSmall" style={styles.instructionsTitle}>
+              How to use:
+            </Text>
+            <Text variant="bodySmall" style={styles.instructionText}>
+              1. You can <Text style={styles.bold}>drag the credit card</Text> left or right to swipe it
+            </Text>
+            <Text variant="bodySmall" style={styles.instructionText}>
+              2. Or use the "Swipe Left"/"Swipe Right" buttons above
+            </Text>
+            <Text variant="bodySmall" style={styles.instructionText}>
+              3. Use arrow buttons to change stores
+            </Text>
+          </Card.Content>
+        </Card>
+
+        {/* Custom Store Button */}
+        <Button
+          mode="outlined"
+          onPress={() => setIsAddingCustom(!isAddingCustom)}
+          style={styles.customButton}
+        >
+          {isAddingCustom ? "Cancel" : "Add Custom Store"}
+        </Button>
+
+        {/* Custom Store Form */}
+        {isAddingCustom && (
+          <Card style={styles.customForm}>
+            <Card.Content>
+              <Text variant="titleMedium" style={styles.formTitle}>
+                Create Custom Store
+              </Text>
+              <TextInput
+                label="Store Name *"
+                value={customStore.name}
+                onChangeText={(text) => setCustomStore({ ...customStore, name: text })}
+                mode="outlined"
+                style={styles.input}
+              />
+              <TextInput
+                label="Category *"
+                value={customStore.category}
+                onChangeText={(text) => setCustomStore({ ...customStore, category: text })}
+                mode="outlined"
+                style={styles.input}
+              />
+              <TextInput
+                label="Amount *"
+                value={customStore.amount}
+                onChangeText={(text) => setCustomStore({ ...customStore, amount: text })}
+                mode="outlined"
+                keyboardType="decimal-pad"
+                style={styles.input}
+              />
+              <TextInput
+                label="Latitude (optional)"
+                value={customStore.lat}
+                onChangeText={(text) => setCustomStore({ ...customStore, lat: text })}
+                mode="outlined"
+                keyboardType="decimal-pad"
+                style={styles.input}
+              />
+              <TextInput
+                label="Longitude (optional)"
+                value={customStore.long}
+                onChangeText={(text) => setCustomStore({ ...customStore, long: text })}
+                mode="outlined"
+                keyboardType="decimal-pad"
+                style={styles.input}
+              />
+              <Button mode="contained" onPress={handleAddCustomStore} style={styles.addButton}>
+                Add Store
+              </Button>
+            </Card.Content>
+          </Card>
+        )}
+
+        {/* Message */}
+        {message && (
+          <Card
+            style={[
+              styles.messageCard,
+              { backgroundColor: message.type === "error" ? palette.error : message.type === "warning" ? "#ff9800" : palette.success }
+            ]}
+          >
+            <Card.Content>
+              <Text style={styles.messageText}>{message.text}</Text>
+            </Card.Content>
+          </Card>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -144,52 +443,183 @@ const styles = StyleSheet.create({
     rowGap: spacing(2)
   },
   header: {
-    marginBottom: spacing(1)
+    alignItems: "center",
+    marginBottom: spacing(2)
   },
   title: {
     fontWeight: "700",
     color: palette.textPrimary
   },
   subtitle: {
-    color: palette.textSecondary,
-    marginTop: spacing(0.5)
+    color: palette.textSecondary
   },
-  card: {
-    backgroundColor: palette.surface,
-    borderRadius: 12
+  storeContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center"
   },
-  cardTitle: {
-    fontWeight: "600",
-    color: palette.textPrimary,
+  navButton: {
+    backgroundColor: "#e0e0e0"
+  },
+  storeCard: {
+    flex: 1,
+    marginHorizontal: spacing(1),
+    backgroundColor: "#fff3cd"
+  },
+  storeContent: {
+    alignItems: "center",
+    padding: spacing(3)
+  },
+  storeEmoji: {
+    fontSize: 48,
     marginBottom: spacing(1)
   },
-  cardDescription: {
-    color: palette.textSecondary,
-    marginBottom: spacing(2),
-    lineHeight: 20
+  storeName: {
+    fontWeight: "700",
+    textAlign: "center"
   },
-  messageBox: {
-    padding: spacing(1.5),
+  storeCategory: {
+    color: palette.textSecondary,
+    textAlign: "center"
+  },
+  readerCard: {
+    backgroundColor: "#2c3e50"
+  },
+  readerTitle: {
+    color: "#fff",
+    textAlign: "center",
+    fontWeight: "700"
+  },
+  readerSubtitle: {
+    color: "#bdc3c7",
+    textAlign: "center",
+    marginBottom: spacing(2)
+  },
+  swipeArea: {
+    backgroundColor: "#34495e",
+    borderRadius: spacing(1),
+    padding: spacing(4),
+    marginVertical: spacing(2),
+    alignItems: "center"
+  },
+  swipeText: {
+    color: "#7f8c8d",
+    fontSize: 16
+  },
+  amount: {
+    color: "#2ecc71",
+    textAlign: "center",
+    fontWeight: "700",
+    marginVertical: spacing(1)
+  },
+  transactionInfo: {
+    color: "#bdc3c7",
+    textAlign: "center",
+    marginBottom: spacing(2)
+  },
+  buttonRow: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    columnGap: spacing(1)
+  },
+  swipeButton: {
+    flex: 1
+  },
+  cardContainer: {
+    alignItems: "center"
+  },
+  creditCard: {
+    width: 340,
+    height: 214,
+    backgroundColor: "#3b5998",
+    borderRadius: spacing(2)
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: spacing(2)
+  },
+  cardBank: {
+    color: "#fff",
+    fontWeight: "700"
+  },
+  cardChip: {
+    width: 50,
+    height: 40,
+    backgroundColor: "#d4af37",
     borderRadius: 8,
     marginBottom: spacing(2)
   },
-  messageText: {
-    fontSize: 14,
-    lineHeight: 20
+  cardNumber: {
+    color: "#fff",
+    fontWeight: "700",
+    letterSpacing: 2,
+    marginBottom: spacing(2)
   },
-  button: {
+  cardFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end"
+  },
+  cardLabel: {
+    color: "#bdc3c7",
+    fontSize: 10
+  },
+  cardName: {
+    color: "#fff",
+    fontWeight: "700"
+  },
+  instructionsCard: {
+    backgroundColor: "#fff9c4"
+  },
+  instructionsTitle: {
+    fontWeight: "700",
+    marginBottom: spacing(1)
+  },
+  instructionText: {
+    marginBottom: spacing(0.5)
+  },
+  bold: {
+    fontWeight: "700"
+  },
+  customButton: {
     marginTop: spacing(1)
   },
-  buttonContent: {
-    paddingVertical: spacing(0.5)
+  customForm: {
+    backgroundColor: "#f5f5f5"
   },
-  featureList: {
-    marginTop: spacing(1),
-    rowGap: spacing(0.5)
+  formTitle: {
+    fontWeight: "700",
+    marginBottom: spacing(2)
   },
-  featureItem: {
+  input: {
+    marginBottom: spacing(1.5)
+  },
+  addButton: {
+    marginTop: spacing(1)
+  },
+  messageCard: {
+    marginTop: spacing(1)
+  },
+  messageText: {
+    color: "#fff",
+    textAlign: "center",
+    fontWeight: "700"
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing(4)
+  },
+  emptyTitle: {
+    fontWeight: "700",
+    marginBottom: spacing(1)
+  },
+  emptyText: {
     color: palette.textSecondary,
-    lineHeight: 22
+    textAlign: "center"
   }
 });
 

@@ -37,9 +37,9 @@ jobs:
           cd backend
           if [ -f gradlew ]; then
             chmod +x gradlew
-            ./gradlew buildLambda
+            ./gradlew build
           else
-            gradle buildLambda
+            gradle build
           fi
 
       - name: Build frontend web assets

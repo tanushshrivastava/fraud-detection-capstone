@@ -28,21 +28,25 @@ export default function App() {
   );
 
   const [index, setIndex] = useState(0);
+  const [sharedAccount, setSharedAccount] = useState(null);
   const [routes] = useState([
     { key: "dashboard", title: "Dashboard", focusedIcon: "view-dashboard" },
     { key: "mockshop", title: "Mock Shop", focusedIcon: "shopping" },
     { key: "team", title: "Team", focusedIcon: "account-group" }
   ]);
 
-  const renderScene = useMemo(
-    () =>
-      BottomNavigation.SceneMap({
-        dashboard: DashboardScreen,
-        mockshop: MockShopScreen,
-        team: TeamScreen
-      }),
-    []
-  );
+  const renderScene = ({ route }) => {
+    switch (route.key) {
+      case "dashboard":
+        return <DashboardScreen onAccountChange={setSharedAccount} />;
+      case "mockshop":
+        return <MockShopScreen account={sharedAccount} />;
+      case "team":
+        return <TeamScreen />;
+      default:
+        return null;
+    }
+  };
 
   return (
     <PaperProvider theme={theme}>
@@ -52,6 +56,7 @@ export default function App() {
         onIndexChange={setIndex}
         renderScene={renderScene}
         shifting={false}
+        barStyle={{ backgroundColor: theme.colors.surface }}
       />
     </PaperProvider>
   );

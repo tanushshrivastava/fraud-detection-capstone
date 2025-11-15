@@ -260,6 +260,11 @@ public abstract class FraudLambdaHandler
         double fraudThreshold = extractNumeric(item, "fraudThreshold", 0.7);
         String phoneNumber = item.containsKey("phoneNumber") ? item.get("phoneNumber").s() : "";
         String username = item.containsKey("username") ? item.get("username").s() : "";
+        String email = item.containsKey("email") ? item.get("email").s() : "";
+        String firstName = item.containsKey("firstName") ? item.get("firstName").s() : "";
+        String lastName = item.containsKey("lastName") ? item.get("lastName").s() : "";
+        String ccNum = item.containsKey("ccNum") ? item.get("ccNum").s() : "";
+        String dateOfBirth = item.containsKey("dateOfBirth") ? item.get("dateOfBirth").s() : "";
 
         List<Map<String, Object>> recentTransactions = fetchRecentTransactions(accountId, 10);
 
@@ -269,6 +274,11 @@ public abstract class FraudLambdaHandler
         responseBody.put("fraudThreshold", fraudThreshold);
         responseBody.put("phoneNumber", phoneNumber);
         responseBody.put("username", username);
+        responseBody.put("email", email);
+        responseBody.put("firstName", firstName);
+        responseBody.put("lastName", lastName);
+        responseBody.put("ccNum", ccNum);
+        responseBody.put("dateOfBirth", dateOfBirth);
         responseBody.put("recentTransactions", recentTransactions);
         return setResponse(baseResponse, 200, toJson(responseBody));
     }

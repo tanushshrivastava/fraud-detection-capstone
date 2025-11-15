@@ -16,7 +16,7 @@ import {
 } from "@/services/api";
 import { palette, spacing } from "@/styles/theme";
 
-const DashboardScreen = () => {
+const DashboardScreen = ({ onAccountChange }) => {
   const theme = useTheme();
   const initialBannerState = {
     message: "Create an account or sign in to manage fraud settings.",
@@ -29,6 +29,12 @@ const DashboardScreen = () => {
   useEffect(() => {
     loadSession();
   }, []);
+
+  useEffect(() => {
+    if (account && onAccountChange) {
+      onAccountChange(account);
+    }
+  }, [account, onAccountChange]);
 
   const loadSession = async () => {
     try {
@@ -87,10 +93,13 @@ const DashboardScreen = () => {
       phoneNumber: response.phoneNumber ?? payload.phoneNumber ?? "",
       fraudThreshold: response.fraudThreshold,
       firstName: response.firstName ?? payload.first_name,
-      lastName: response.lastName ?? payload.last_name
+      lastName: response.lastName ?? payload.last_name,
+      ccNum: payload.cc_num,
+      dateOfBirth: payload.date_of_birth
     };
     setAccount(nextAccount);
     saveSession(nextAccount);
+    if (onAccountChange) onAccountChange(nextAccount);
     setRecentTransactions([]);
     setLastTransactionResult(null);
     setBannerState({
@@ -107,11 +116,16 @@ const DashboardScreen = () => {
       username: response.username,
       email: response.email,
       phoneNumber: response.phoneNumber,
-      fraudThreshold: response.fraudThreshold
+      fraudThreshold: response.fraudThreshold,
+      firstName: response.firstName,
+      lastName: response.lastName,
+      ccNum: response.ccNum,
+      dateOfBirth: response.dateOfBirth
     };
     const transactions = response.recentTransactions ?? [];
     setAccount(nextAccount);
     saveSession(nextAccount);
+    if (onAccountChange) onAccountChange(nextAccount);
     setRecentTransactions(transactions);
     setLastTransactionResult(null);
     setBannerState({
@@ -197,6 +211,7 @@ const DashboardScreen = () => {
   const handleLogout = () => {
     clearSession();
     setAccount(null);
+    if (onAccountChange) onAccountChange(null);
     setRecentTransactions([]);
     setLastTransactionResult(null);
     setBannerState({ ...initialBannerState });

@@ -31,7 +31,8 @@ backend/tmp/
 backend/target/
 backend/build/
 !backend/build/libs/
-!backend/build/libs/fraud-backend.jar
+backend/build/libs/fraud-backend.jar
+*.jar
 
 backend/lib/
 backend/cdk.out/

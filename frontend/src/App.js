@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from "react";
-import NavBar from "./components/NavBar";
-import HeroSection from "./components/HeroSection";
-import Footer from "./components/Footer";
-import HomePage from "./pages/HomePage";
-import AboutPage from "./pages/AboutPage";
-import TeamPage from "./pages/TeamPage";
-import "./styles/layout.css";
+import { NavigationContainer } from '@react-navigation/native';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import DashboardScreen from "./screens/DashboardScreen";
+import MockShopScreen from "./screens/MockShopScreen";
+import TeamScreen from "./screens/TeamScreen";
+
+const Tab = createBottomTabNavigator();
 
 // Root application shell that coordinates the navigation, hero, and page content.
 
@@ -45,58 +46,64 @@ const heroCopy = {
 };
 
 function App() {
-  const [activePage, setActivePage] = useState("home");
-  const isApiConfigured = Boolean(API_URL);
+  const [account, setAccount] = useState(null);
+  const [lastTransaction, setLastTransaction] = useState(null);
 
-  // Memoize hero copy so static text only re-evaluates when the API connection changes.
-  const heroContent = useMemo(() => {
-    const chip = isApiConfigured ? "Connected to AWS" : "Configure API Connection";
-    return {
-      home: { ...heroCopy.home, chip },
-      about: { ...heroCopy.about, chip: "Capital One × UW–Madison" },
-      team: { ...heroCopy.team, chip: "Powered by collaboration" },
-    };
-  }, [isApiConfigured]);
-
-  // Switch between the different page-level React components based on the nav state.
-  const renderContent = () => {
-    switch (activePage) {
-      case "about":
-        return <AboutPage />;
-      case "team":
-        return <TeamPage />;
-      case "home":
-      default:
-        return <HomePage apiUrl={API_URL} />;
-    }
+  const handleTransactionComplete = (result) => {
+    setLastTransaction(result);
   };
 
-  const selectedHero = heroContent[activePage];
-
   return (
-    <div className="app-shell">
-      <header className="site-header">
-        <div className="brand-cluster">
-          <span className="brand-accent" aria-hidden="true">
-            <span />
-          </span>
-          <div>
-            <div className="brand-title">Capital One × UW–Madison</div>
-            <div className="brand-subtitle">Fraud Detection Capstone</div>
-          </div>
-        </div>
-        <NavBar items={NAV_ITEMS} activeItem={activePage} onSelect={setActivePage} />
-      </header>
-
-      <HeroSection
-        title={selectedHero.title}
-        subtitle={selectedHero.subtitle}
-      />
-
-      {renderContent()}
-
-      <Footer />
-    </div>
+    <NavigationContainer>
+      <Tab.Navigator
+        screenOptions={{
+          tabBarActiveTintColor: '#3b5998',
+          tabBarInactiveTintColor: '#7f8c8d',
+          headerShown: false
+        }}
+      >
+        <Tab.Screen
+          name="Dashboard"
+          options={{
+            tabBarIcon: ({ color, size }) => (
+              <MaterialCommunityIcons name="view-dashboard" size={size} color={color} />
+            )
+          }}
+        >
+          {(props) => (
+            <DashboardScreen
+              {...props}
+              onAccountChange={setAccount}
+            />
+          )}
+        </Tab.Screen>
+        <Tab.Screen
+          name="Mock Shop"
+          options={{
+            tabBarIcon: ({ color, size }) => (
+              <MaterialCommunityIcons name="store" size={size} color={color} />
+            )
+          }}
+        >
+          {(props) => (
+            <MockShopScreen
+              {...props}
+              account={account}
+              onTransactionComplete={handleTransactionComplete}
+            />
+          )}
+        </Tab.Screen>
+        <Tab.Screen
+          name="Team"
+          component={TeamScreen}
+          options={{
+            tabBarIcon: ({ color, size}) => (
+              <MaterialCommunityIcons name="account-group" size={size} color={color} />
+            )
+          }}
+        />
+      </Tab.Navigator>
+    </NavigationContainer>
   );
 }
 

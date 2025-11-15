@@ -67,8 +67,11 @@ public class SendEmailHandler extends FraudLambdaHandler {
             return setResponse(baseResponse, 405, "{\"error\":\"Method not allowed\"}");
         }
 
+        context.getLogger().log("SendEmailHandler invoked");
+        
         // Parse request body
         JsonNode bodyNode = parseBody(event);
+        context.getLogger().log("Request body parsed: " + bodyNode.toString());
 
         // Extract and validate required fields
         String to = requireText(bodyNode, "to");
@@ -81,8 +84,8 @@ public class SendEmailHandler extends FraudLambdaHandler {
                 : DEFAULT_FROM_EMAIL;
 
         context.getLogger().log(String.format(
-                "Sending email from=%s to=%s subject=%s",
-                fromEmail, to, subject));
+                "Sending email from=%s to=%s subject=%s body=%s",
+                fromEmail, to, subject, body));
 
         try {
             // Build and send email using SES
@@ -105,6 +108,7 @@ public class SendEmailHandler extends FraudLambdaHandler {
                             .build())
                     .build();
 
+            context.getLogger().log("Calling SES sendEmail...");
             SendEmailResponse emailResponse = sesClient.sendEmail(emailRequest);
             String messageId = emailResponse.messageId();
 
@@ -121,7 +125,17 @@ public class SendEmailHandler extends FraudLambdaHandler {
         } catch (Exception e) {
             context.getLogger().log(String.format(
                     "Failed to send email: %s", e.getMessage()));
+            e.printStackTrace();
             throw new RuntimeException("Failed to send email: " + e.getMessage(), e);
         }
     }
+
+    @Override
+    protected void finalize() throws Throwable {
+        if (sesClient != null) {
+            sesClient.close();
+        }
+        super.finalize();
+    }
 }
+
