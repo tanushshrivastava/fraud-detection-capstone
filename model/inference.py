@@ -2,7 +2,9 @@
 
 import joblib
 import pandas as pd
+import numpy as np
 import json
+import math
 from datetime import datetime
 
 def model_fn(model_dir):
@@ -39,38 +41,36 @@ def preprocess(df):
     else:
         df["age"] = 0
 
-    # Additional stateless features
-    # 1) Log amount
+    # Additional stateless features (optimized for speed)
+    # 1) Log amount (vectorized for speed)
     df["amt"] = pd.to_numeric(df.get("amt", 0), errors="coerce").fillna(0)
-    df["log_amt"] = (df["amt"].clip(lower=1e-6)).apply(lambda x: float(__import__("math").log(x)))
+    amt_clipped = np.clip(df["amt"].values, 1e-6, None)
+    df["log_amt"] = np.log(amt_clipped)
     # 2) High amount flag
     df["is_high_amount"] = (df["amt"] >= 1_000_000).astype(int)
-    # 3) Cyclical hour encodings and night flag
-    import numpy as _np
-    df["hour_sin"] = _np.sin(2 * _np.pi * pd.to_numeric(df["hour"], errors="coerce").fillna(0) / 24.0)
-    df["hour_cos"] = _np.cos(2 * _np.pi * pd.to_numeric(df["hour"], errors="coerce").fillna(0) / 24.0)
+    # 3) Cyclical hour encodings and night flag (vectorized)
+    hour_numeric = pd.to_numeric(df["hour"], errors="coerce").fillna(0).values
+    hour_rad = 2 * np.pi * hour_numeric / 24.0
+    df["hour_sin"] = np.sin(hour_rad)
+    df["hour_cos"] = np.cos(hour_rad)
     df["is_night"] = df["hour"].isin([0,1,2,3,4,5,6]).astype(int)
-    # 4) Haversine distance between user and merchant
-    def _haversine_km(lat1, lon1, lat2, lon2):
-        import math
-        if any(pd.isna(v) for v in (lat1, lon1, lat2, lon2)):
-            return 0.0
-        R = 6371.0
-        phi1 = math.radians(float(lat1))
-        phi2 = math.radians(float(lat2))
-        dphi = math.radians(float(lat2) - float(lat1))
-        dlambda = math.radians(float(lon2) - float(lon1))
-        a = math.sin(dphi/2)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda/2)**2
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-        return float(R * c)
-    lat = pd.to_numeric(df.get("lat", 0), errors="coerce")
-    lon = pd.to_numeric(df.get("long", 0), errors="coerce")
-    mlat = pd.to_numeric(df.get("merch_lat", 0), errors="coerce")
-    mlon = pd.to_numeric(df.get("merch_long", 0), errors="coerce")
-    df["distance_km"] = [
-        _haversine_km(la, lo, mla, mlo)
-        for la, lo, mla, mlo in zip(lat.fillna(0), lon.fillna(0), mlat.fillna(0), mlon.fillna(0))
-    ]
+    # 4) Haversine distance between user and merchant (vectorized for speed)
+    lat = pd.to_numeric(df.get("lat", 0), errors="coerce").fillna(0).values
+    lon = pd.to_numeric(df.get("long", 0), errors="coerce").fillna(0).values
+    mlat = pd.to_numeric(df.get("merch_lat", 0), errors="coerce").fillna(0).values
+    mlon = pd.to_numeric(df.get("merch_long", 0), errors="coerce").fillna(0).values
+    
+    # Vectorized haversine calculation (much faster than loop)
+    R = 6371.0
+    lat1_rad = np.radians(lat)
+    lat2_rad = np.radians(mlat)
+    dlat_rad = np.radians(mlat - lat)
+    dlon_rad = np.radians(mlon - lon)
+    
+    a = (np.sin(dlat_rad/2)**2 + 
+         np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon_rad/2)**2)
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+    df["distance_km"] = R * c
 
     return df
 
