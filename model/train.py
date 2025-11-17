@@ -5,7 +5,6 @@ XGBoost (XGBClassifier) pipeline, and packages the resulting artifacts for deplo
 """
 
 import json
-import os
 import tarfile
 from datetime import datetime
 from pathlib import Path
@@ -50,7 +49,6 @@ def build_pipeline(
     scale_pos_weight: float = 1.0,
     use_early_stopping: bool = True,
     max_estimators: int = 1000,
-    early_stopping_rounds: int = 30,
 ) -> Pipeline:
     """Create a preprocessing + classifier pipeline used for both training/inference.
     
@@ -73,26 +71,27 @@ def build_pipeline(
     )
 
     xgb_params = {
-        "max_depth": 5,  # Reduced from 6 to prevent overfitting
-        "learning_rate": 0.05,  # Reduced from 0.1 for more stable learning
-        "subsample": 0.8,
-        "colsample_bytree": 0.8,
-        "reg_lambda": 2.0,  # Increased from 1.0 for stronger L2 regularization
-        "reg_alpha": 0.1,  # Added L1 regularization
-        "min_child_weight": 3,  # Added to prevent overfitting on small groups
-        "gamma": 0.1,  # Minimum loss reduction for split (reduces overfitting)
+        "max_depth": 6,  # Slightly deeper for more complex patterns
+        "learning_rate": 0.03,  # Lower learning rate for better convergence
+        "subsample": 0.85,  # Slightly more data per tree
+        "colsample_bytree": 0.85,  # More features per tree
+        "reg_lambda": 1.5,  # L2 regularization
+        "reg_alpha": 0.2,  # L1 regularization
+        "min_child_weight": 5,  # Higher to prevent overfitting on small groups
+        "gamma": 0.2,  # Minimum loss reduction for split
         "random_state": 42,
         "n_jobs": -1,
         "tree_method": "hist",
-        "eval_metric": "logloss",
+        "eval_metric": "aucpr",  # Use PR AUC for imbalanced data
         "scale_pos_weight": scale_pos_weight,
         "use_label_encoder": False,
+        "objective": "binary:logistic",
     }
     
     if use_early_stopping:
         xgb_params.update({
             "n_estimators": max_estimators,
-            "early_stopping_rounds": early_stopping_rounds,
+            "early_stopping_rounds": 40,  # Stop if no improvement for 40 rounds
         })
     else:
         xgb_params["n_estimators"] = 500
@@ -194,34 +193,34 @@ def main() -> None:
     # Compute age at transaction time to avoid data leakage
     df["age"] = ((df["trans_date_trans_time"] - df["dob"]).dt.days / 365.25).clip(lower=0)
 
-    # Additional stateless features to better capture suspicious patterns (vectorized for speed)
-    # 1) Log-transformed amount to highlight extreme spent values (vectorized)
-    amt_clipped = np.clip(df["amt"].values, 1e-6, None)
-    df["log_amt"] = np.log(amt_clipped)
+    # Additional stateless features to better capture suspicious patterns
+    # 1) Log-transformed amount to highlight extreme spent values
+    df["log_amt"] = (df["amt"].clip(lower=1e-6)).apply(lambda x: float(__import__("math").log(x)))
     # 2) Very high amount flag (million-dollar+)
     df["is_high_amount"] = (df["amt"] >= 1_000_000).astype(int)
-    # 3) Cyclical encoding for hour of day (vectorized)
-    hour_rad = 2 * np.pi * df["hour"].values / 24.0
-    df["hour_sin"] = np.sin(hour_rad)
-    df["hour_cos"] = np.cos(hour_rad)
+    # 3) Cyclical encoding for hour of day
+    import numpy as _np
+    df["hour_sin"] = _np.sin(2 * _np.pi * df["hour"] / 24.0)
+    df["hour_cos"] = _np.cos(2 * _np.pi * df["hour"] / 24.0)
     # 4) Night flag (e.g., 0-6)
     df["is_night"] = df["hour"].isin([0,1,2,3,4,5,6]).astype(int)
-    # 5) Haversine distance between user and merchant (vectorized for speed)
-    lat = df["lat"].fillna(0).values
-    lon = df["long"].fillna(0).values
-    mlat = df["merch_lat"].fillna(0).values
-    mlon = df["merch_long"].fillna(0).values
-    
-    R = 6371.0
-    lat1_rad = np.radians(lat)
-    lat2_rad = np.radians(mlat)
-    dlat_rad = np.radians(mlat - lat)
-    dlon_rad = np.radians(mlon - lon)
-    
-    a = (np.sin(dlat_rad/2)**2 + 
-         np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon_rad/2)**2)
-    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
-    df["distance_km"] = R * c
+    # 5) Haversine distance between user and merchant
+    def _haversine_km(lat1, lon1, lat2, lon2):
+        import math
+        if _np.isnan(lat1) or _np.isnan(lon1) or _np.isnan(lat2) or _np.isnan(lon2):
+            return 0.0
+        R = 6371.0
+        phi1 = math.radians(lat1)
+        phi2 = math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlambda = math.radians(lon2 - lon1)
+        a = math.sin(dphi/2)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda/2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return float(R * c)
+    df["distance_km"] = [
+        _haversine_km(la, lo, mla, mlo)
+        for la, lo, mla, mlo in zip(df["lat"], df["long"], df["merch_lat"], df["merch_long"])
+    ]
 
     target = "is_fraud"
     y = df[target]
@@ -279,16 +278,15 @@ def main() -> None:
         max_estimators = 300
         early_stopping_rounds = 20
     else:
-        max_estimators = 400  # Reduced from 600 - early stopping usually triggers around 300-400
-        early_stopping_rounds = 30
+        max_estimators = 500  # More estimators for better learning
+        early_stopping_rounds = 40  # More patience for early stopping
     
     pipeline = build_pipeline(
         numeric_features, 
         categorical_features, 
         scale_pos_weight=scale_pos_weight,
         use_early_stopping=True,
-        max_estimators=max_estimators,
-        early_stopping_rounds=early_stopping_rounds
+        max_estimators=max_estimators
     )
 
     # Preprocess data for early stopping
@@ -300,11 +298,11 @@ def main() -> None:
     # Fit XGBoost with early stopping on validation set
     classifier = pipeline.named_steps["classifier"]
     print("Training XGBoost with early stopping...")
-    print("(Progress updates every 10 iterations. Training will stop automatically when validation performance plateaus.)")
     classifier.fit(
         X_train_preprocessed, 
         y_train,
         eval_set=[(X_train_preprocessed, y_train), (X_val_preprocessed, y_val)],
+        eval_metric=["aucpr", "auc"],  # Monitor both PR AUC and ROC AUC
         verbose=10  # Print progress every 10 rounds for better feedback
     )
     
@@ -432,7 +430,7 @@ def main() -> None:
             "tree_method": "hist",
             "eval_metric": "logloss",
             "scale_pos_weight": float(scale_pos_weight),
-            "early_stopping_rounds": 30,
+            "early_stopping_rounds": 50,
         },
         "comparison": {
             "random_forest": {
