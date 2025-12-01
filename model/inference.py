@@ -1,49 +1,58 @@
 """SageMaker-compatible inference entry points for the fraud detection model."""
 
+from __future__ import annotations
+
+import json
+from typing import Any, Dict, List
+
 import joblib
 import pandas as pd
-import json
-from datetime import datetime
+
+from common import FEATURE_COLUMNS, prepare_inference_features
+
 
 def model_fn(model_dir):
-    """Load model from SageMaker directory"""
+    """Load model from SageMaker directory."""
     return joblib.load(f"{model_dir}/model.joblib")
 
-def input_fn(request_body, content_type='application/json'):
-    """Parse input JSON to DataFrame (SageMaker passes 2 args)"""
+
+def _build_frame_from_payload(payload: Dict[str, Any]) -> pd.DataFrame:
+    if "transaction" in payload:
+        txn = payload.get("transaction", {}) or {}
+        history = payload.get("history", []) or []
+    else:
+        txn = payload
+        history = payload.get("history", []) if isinstance(payload.get("history"), list) else []
+    return prepare_inference_features(txn, history)
+
+
+def input_fn(request_body, content_type="application/json"):
+    """Parse input JSON and build the feature frame expected by the model."""
+    if content_type != "application/json":
+        raise ValueError(f"Unsupported content type: {content_type}")
+
     data = json.loads(request_body)
+
+    if isinstance(data, list):
+        frames = [_build_frame_from_payload(item) for item in data]
+        return pd.concat(frames, ignore_index=True)[FEATURE_COLUMNS]
+
     if isinstance(data, dict):
-        data = [data]
-    return pd.DataFrame(data)
+        return _build_frame_from_payload(data)[FEATURE_COLUMNS]
 
-def preprocess(df):
-    """Recreate engineered features from training"""
-    df = df.copy()
+    raise ValueError("Payload must be a dict or list of dicts")
 
-    # Convert timestamps and compute hour/dow
-    if "trans_date_trans_time" in df.columns:
-        df["trans_date_trans_time"] = pd.to_datetime(df["trans_date_trans_time"], errors="coerce")
-        df["hour"] = df["trans_date_trans_time"].dt.hour.fillna(0)
-        df["dow"] = df["trans_date_trans_time"].dt.dayofweek.fillna(0)
-    else:
-        df["hour"] = 0
-        df["dow"] = 0
 
-    # Compute age from dob
-    if "dob" in df.columns:
-        df["dob"] = pd.to_datetime(df["dob"], errors="coerce")
-        df["age"] = ((datetime.now() - df["dob"]).dt.days / 365.25).fillna(0)
-    else:
-        df["age"] = 0
-
-    return df
-
-def predict_fn(input_data, model):
-    """Run model inference on processed data"""
-    processed = preprocess(input_data)
-    preds = model.predict_proba(processed)[:, 1]
+def predict_fn(input_data: pd.DataFrame, model):
+    """Run model inference on processed data."""
+    preds = model.predict_proba(input_data)[:, 1]
     return preds.tolist()
 
-def output_fn(prediction, accept='application/json'):
-    """Format output for SageMaker response"""
-    return json.dumps({"fraud_probability": prediction[0]})
+
+def output_fn(prediction, accept="application/json"):
+    """Format output for SageMaker response."""
+    if isinstance(prediction, list) and prediction:
+        score = float(prediction[0])
+    else:
+        score = float(prediction)
+    return json.dumps({"fraud_probability": score})

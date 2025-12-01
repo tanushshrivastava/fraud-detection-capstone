@@ -4,11 +4,8 @@ The script loads the labelled transactions CSV, engineers features, trains a
 RandomForest pipeline, and packages the resulting artifacts for deployment.
 """
 
-import json
 import tarfile
-from datetime import datetime
 from pathlib import Path
-from typing import List
 
 import joblib
 import pandas as pd
@@ -20,6 +17,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from cdk_utils import get_artifact_root, get_backend_stack_name
+from common import (
+    CATEGORICAL,
+    FEATURE_COLUMNS,
+    NUMERIC_FEATURES,
+    prepare_training_features,
+)
 
 
 def load_dataframe(csv_path: Path) -> pd.DataFrame:
@@ -32,27 +35,31 @@ def load_dataframe(csv_path: Path) -> pd.DataFrame:
     return pd.read_csv(csv_path)
 
 
-def build_pipeline(
-    numeric_features: List[str],
-    categorical_features: List[str],
-) -> Pipeline:
+def build_pipeline() -> Pipeline:
     """Create a preprocessing + classifier pipeline used for both training/inference."""
-    # Standardize numeric columns to zero mean / unit variance.
     numeric_transformer = Pipeline([("scaler", StandardScaler())])
-    # One-hot encode categorical columns while ignoring unseen categories at inference.
     categorical_transformer = Pipeline([("onehot", OneHotEncoder(handle_unknown="ignore"))])
 
     preprocessor = ColumnTransformer(
         [
-            ("num", numeric_transformer, numeric_features),
-            ("cat", categorical_transformer, categorical_features),
+            ("num", numeric_transformer, NUMERIC_FEATURES),
+            ("cat", categorical_transformer, CATEGORICAL),
         ]
     )
 
     return Pipeline(
         [
             ("preprocessor", preprocessor),
-            ("classifier", RandomForestClassifier(n_estimators=100, class_weight="balanced", n_jobs=-1)),
+            (
+                "classifier",
+                RandomForestClassifier(
+                    n_estimators=200,
+                    max_depth=None,
+                    class_weight="balanced",
+                    n_jobs=-1,
+                    random_state=42,
+                ),
+            ),
         ]
     )
 
@@ -97,33 +104,15 @@ def main() -> None:
     csv_path = model_dir / "fraudTrain.csv"
     # Load the raw labelled transactions into a DataFrame.
     df = load_dataframe(csv_path)
-
-    # Recreate time-based and demographic features relied on by the model.
-    df["trans_date_trans_time"] = pd.to_datetime(df["trans_date_trans_time"])
-    df["dob"] = pd.to_datetime(df["dob"])
-    df["hour"] = df["trans_date_trans_time"].dt.hour
-    df["dow"] = df["trans_date_trans_time"].dt.dayofweek
-    df["age"] = ((datetime.now() - df["dob"]).dt.days / 365.25).astype(int)
-
+    # Engineer training features that mirror what inference will build.
+    features = prepare_training_features(df)
     target = "is_fraud"
     y = df[target]
-    # Drop identifiers that should not be used by the model.
-    X = df.drop(columns=[target, "trans_num"])
 
-    numeric_features = [
-        "amt",
-        "lat",
-        "long",
-        "city_pop",
-        "merch_lat",
-        "merch_long",
-        "hour",
-        "age",
-        "dow",
-    ]
-    categorical_features = ["merchant", "category", "gender", "state", "job"]
+    # Keep only the columns the pipeline expects.
+    X = features[FEATURE_COLUMNS]
 
-    pipeline = build_pipeline(numeric_features, categorical_features)
+    pipeline = build_pipeline()
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, stratify=y, test_size=0.2, random_state=42
     )

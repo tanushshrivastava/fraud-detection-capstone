@@ -5,6 +5,7 @@ import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -423,8 +424,15 @@ public abstract class FraudLambdaHandler
         // NEW: Get account details (includes phone number and fraudThreshold)
         Map<String, AttributeValue> account = getAccount(accountId);
 
-        String payload = OBJECT_MAPPER.writeValueAsString(transactionNode);
-        context.getLogger().log("Payload received for account " + accountId + ": " + payload);
+        // Gather recent transaction history for velocity features
+        List<Map<String, Object>> history = fetchRecentTransactionHistory(accountId, 10, context);
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("transaction", OBJECT_MAPPER.convertValue(transactionNode, Map.class));
+        payload.put("history", history);
+
+        String payloadJson = OBJECT_MAPPER.writeValueAsString(payload);
+        context.getLogger().log("Payload received for account " + accountId + ": " + payloadJson);
 
         String result;
         try (SageMakerRuntimeClient runtime = SageMakerRuntimeClient.create()) {
@@ -432,7 +440,7 @@ public abstract class FraudLambdaHandler
                     InvokeEndpointRequest.builder()
                             .endpointName(ENDPOINT_NAME)
                             .contentType("application/json")
-                            .body(SdkBytes.fromString(payload, StandardCharsets.UTF_8))
+                            .body(SdkBytes.fromString(payloadJson, StandardCharsets.UTF_8))
                             .build());
             result = response.body().asUtf8String();
         }
@@ -627,6 +635,48 @@ public abstract class FraudLambdaHandler
             }
             return items;
         }
+    }
+
+    private List<Map<String, Object>> fetchRecentTransactionHistory(String accountId, int limit, Context context) {
+        if (TRANSACTIONS_TABLE_NAME == null || TRANSACTIONS_TABLE_NAME.isBlank()) {
+            return List.of();
+        }
+
+        Map<String, AttributeValue> expressionValues = Map.of(
+                ":accountId", AttributeValue.builder().s(accountId).build());
+
+        QueryRequest request = QueryRequest.builder()
+                .tableName(TRANSACTIONS_TABLE_NAME)
+                .indexName("accountId-createdAt-index")
+                .keyConditionExpression("accountId = :accountId")
+                .expressionAttributeValues(expressionValues)
+                .scanIndexForward(false)
+                .limit(limit)
+                .build();
+
+        List<Map<String, Object>> history = new ArrayList<>();
+        try (DynamoDbClient dynamoDb = DynamoDbClient.create()) {
+            QueryResponse response = dynamoDb.query(request);
+            if (response.items() == null) {
+                return history;
+            }
+            for (Map<String, AttributeValue> record : response.items()) {
+                String serializedTransaction = record
+                        .getOrDefault("transaction", AttributeValue.builder().s("{}").build())
+                        .s();
+                try {
+                    JsonNode txnNode = OBJECT_MAPPER.readTree(serializedTransaction);
+                    Map<String, Object> txnMap = OBJECT_MAPPER.convertValue(
+                            txnNode, new TypeReference<Map<String, Object>>() {});
+                    history.add(txnMap);
+                } catch (Exception e) {
+                    context.getLogger().log("Failed to parse transaction history entry: " + e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            context.getLogger().log("Failed to fetch transaction history: " + e.getMessage());
+        }
+        return history;
     }
 
     private void ensureAccountExists(String accountId) throws Exception {
