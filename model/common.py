@@ -2,42 +2,109 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from math import atan2, cos, radians, sin, sqrt
-from typing import Dict, Iterable, List, Sequence
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
 
-# Buckets of feature names expected by the preprocessing pipeline.
-CATEGORICAL: List[str] = ["merchant", "category", "gender", "state", "job"]
-NUMERIC_BASE: List[str] = ["amt", "lat", "long", "city_pop", "merch_lat", "merch_long"]
-NUMERIC_ENGINEERED: List[str] = [
-    "distance_customer_merchant",
-    "age",
-    "hour",
-    "dow",
-    "is_weekend",
-    "amt_avg_10",
-    "amt_std_10",
-    "amt_max_10",
-    "amt_min_10",
-    "time_since_last_txn",
-    "txns_last_10min",
-    "txns_last_1h",
-    "txns_last_24h",
-    "distance_last_txn_km",
-    "speed_kmph",
-    "impossible_travel_flag",
+# Feature definitions for the simplified model.
+# State offered little signal in the synthetic set; drop it to reduce noise.
+CATEGORICAL: List[str] = ["category"]
+NUMERIC_FEATURES: List[str] = ["amount", "distance_km", "merchant_risk", "is_night", "hour"]
+FEATURE_COLUMNS: List[str] = NUMERIC_FEATURES + CATEGORICAL
+
+KNOWN_MERCHANTS = [
+    "Starbucks",
+    "Dunkin",
+    "Peets Coffee",
+    "Tim Hortons",
+    "McDonalds",
+    "Chipotle",
+    "Subway",
+    "Taco Bell",
+    "KFC",
+    "Panera Bread",
+    "Chick-fil-A",
+    "Five Guys",
+    "Burger King",
+    "Kroger",
+    "Whole Foods",
+    "Trader Joes",
+    "Safeway",
+    "Publix",
+    "Aldi",
+    "Lidl",
+    "Costco",
+    "Sam's Club",
+    "Walmart",
+    "Target",
+    "IKEA",
+    "Home Depot",
+    "Lowes",
+    "Best Buy",
+    "Macy's",
+    "Nordstrom",
+    "TJ Maxx",
+    "Marshalls",
+    "Bed Bath & Beyond",
+    "HomeGoods",
+    "H&M",
+    "Zara",
+    "Uniqlo",
+    "Gap",
+    "Old Navy",
+    "Banana Republic",
+    "Nike",
+    "Adidas",
+    "Foot Locker",
+    "Shell",
+    "Chevron",
+    "BP",
+    "Exxon",
+    "Mobil",
+    "CVS Pharmacy",
+    "Walgreens",
+    "Rite Aid",
+    "Amazon",
+    "Apple Store",
+    "Microsoft Store",
+    "eBay",
+    "Etsy",
+    "Uber",
+    "Lyft",
+    "Delta Airlines",
+    "United Airlines",
+    "Southwest Airlines",
+    "Hilton Hotel",
+    "Marriott Hotel",
+    "Airbnb",
+    "Planet Fitness",
+    "LA Fitness",
+    "Anytime Fitness",
 ]
-NUMERIC_FEATURES: List[str] = NUMERIC_BASE + NUMERIC_ENGINEERED
-FEATURE_COLUMNS: List[str] = CATEGORICAL + NUMERIC_FEATURES
+SAFE_KEYWORDS = [
+    "coffee",
+    "cafe",
+    "store",
+    "market",
+    "mart",
+    "grill",
+    "hotel",
+    "pharmacy",
+    "gas",
+    "fuel",
+    "fitness",
+    "burger",
+    "pizza",
+]
+KNOWN_MERCHANTS_LOWER = {m.lower() for m in KNOWN_MERCHANTS}
 
 
 def haversine(lat1, lon1, lat2, lon2) -> float:
     """Compute great-circle distance in kilometers; return 0 for invalid inputs."""
     try:
-        if pd.isna(lat1) or pd.isna(lon1) or pd.isna(lat2) or pd.isna(lon2):
+        if any(pd.isna(v) for v in (lat1, lon1, lat2, lon2)):
             return 0.0
         d_lat = radians(lat2 - lat1)
         d_lon = radians(lon2 - lon1)
@@ -48,212 +115,167 @@ def haversine(lat1, lon1, lat2, lon2) -> float:
         return 0.0
 
 
-def _safe_to_datetime(s: pd.Series) -> pd.Series:
-    """Coerce arbitrary string columns to datetimes while swallowing invalid values."""
-    return pd.to_datetime(s, errors="coerce")
+def compute_merchant_risk(name: str) -> int:
+    """
+    Rough heuristic mirroring the data generator:
+    0 = known/safe merchant, 1 = suspicious/unknown merchant.
+    """
+    if not isinstance(name, str):
+        return 1
+    s = name.strip().lower()
+
+    if s in KNOWN_MERCHANTS_LOWER:
+        return 0
+
+    for kw in SAFE_KEYWORDS:
+        if kw in s:
+            return 0
+
+    if "xxx" in s or "fraud" in s:
+        return 1
+
+    digit_count = sum(c.isdigit() for c in s)
+    if digit_count >= 3 or len(s) <= 3:
+        return 1
+
+    alpha_count = sum(c.isalpha() for c in s)
+    if alpha_count / max(len(s), 1) < 0.5:
+        return 1
+
+    return 1
 
 
-def _fill_missing_columns(df: pd.DataFrame, columns: Sequence[str]) -> pd.DataFrame:
-    for col in columns:
-        if col not in df.columns:
-            df[col] = np.nan
-    return df
+def _parse_timestamp(value) -> pd.Timestamp | None:
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return None
+    try:
+        return pd.to_datetime(value)
+    except Exception:
+        return None
 
 
-def _ensure_numeric(df: pd.DataFrame, columns: Iterable[str]) -> pd.DataFrame:
-    for col in columns:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-    return df
+def _is_night(value) -> int:
+    ts = _parse_timestamp(value)
+    if ts is None:
+        return 0
+    return 1 if ts.hour in {23, 0, 1, 2, 3, 4, 5} else 0
 
 
-def _compute_time_distance_features(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df["trans_dt"] = _safe_to_datetime(df.get("trans_date_trans_time"))
-    df["dob_dt"] = _safe_to_datetime(df.get("dob"))
-
-    df["age"] = ((df["trans_dt"] - df["dob_dt"]).dt.days / 365.25).astype(float)
-    df["hour"] = df["trans_dt"].dt.hour.astype(float)
-    df["dow"] = df["trans_dt"].dt.dayofweek.astype(float)
-    df["is_weekend"] = (df["dow"] >= 5).astype(float)
-
-    df["distance_customer_merchant"] = df.apply(
-        lambda r: haversine(r.get("lat"), r.get("long"), r.get("merch_lat"), r.get("merch_long")),
-        axis=1,
-    )
-    return df
+def _coerce_numeric(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return default
 
 
-def _compute_velocity_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute rolling/velocity features using historical ordering by cc_num and timestamp."""
-    if "cc_num" not in df.columns:
-        # Without customer ids we cannot build history-aware features; fill zeros.
-        for col in [
-            "amt_avg_10",
-            "amt_std_10",
-            "amt_max_10",
-            "amt_min_10",
-            "time_since_last_txn",
-            "txns_last_10min",
-            "txns_last_1h",
-            "txns_last_24h",
-            "distance_last_txn_km",
-            "speed_kmph",
-            "impossible_travel_flag",
-        ]:
+def _distance_from_fields(home_lat, home_long, merch_lat, merch_long) -> float:
+    return haversine(_coerce_numeric(home_lat), _coerce_numeric(home_long), _coerce_numeric(merch_lat), _coerce_numeric(merch_long))
+
+
+def _ensure_columns(df: pd.DataFrame) -> pd.DataFrame:
+    for col in CATEGORICAL:
+        if col not in df:
+            df[col] = ""
+        df[col] = df[col].fillna("")
+    for col in NUMERIC_FEATURES:
+        if col not in df:
             df[col] = 0.0
-        return df
-
-    df = df.sort_values(["cc_num", "trans_dt"]).copy()
-
-    df["time_since_last_txn"] = (
-        df.groupby("cc_num")["trans_dt"].diff().dt.total_seconds().fillna(0).astype(float)
-    )
-
-    # Distance/speed based on previous transaction
-    df["prev_lat"] = df.groupby("cc_num")["lat"].shift(1)
-    df["prev_long"] = df.groupby("cc_num")["long"].shift(1)
-    df["distance_last_txn_km"] = df.apply(
-        lambda r: haversine(r.get("lat"), r.get("long"), r.get("prev_lat"), r.get("prev_long")),
-        axis=1,
-    )
-    df["speed_kmph"] = df.apply(
-        lambda r: 0.0
-        if r.get("time_since_last_txn", 0) in (0, np.nan)
-        else r.get("distance_last_txn_km", 0) / (r.get("time_since_last_txn") / 3600.0),
-        axis=1,
-    )
-    df["impossible_travel_flag"] = (df["speed_kmph"] > 900).astype(float)
-
-    def _rolling_time_counts(group: pd.DataFrame) -> pd.DataFrame:
-        # Use time-based rolling windows on a datetime index.
-        g = group.set_index("trans_dt")
-        g["txns_last_10min"] = g["amt"].rolling("10min").count() - 1
-        g["txns_last_1h"] = g["amt"].rolling("1h").count() - 1
-        g["txns_last_24h"] = g["amt"].rolling("24h").count() - 1
-        return g.reset_index()
-
-    df = df.groupby("cc_num", group_keys=False).apply(_rolling_time_counts)
-
-    # Amount rolling statistics over the last 10 transactions.
-    grouped = df.groupby("cc_num")
-    df["amt_avg_10"] = grouped["amt"].rolling(window=10, min_periods=1).mean().reset_index(level=0, drop=True)
-    df["amt_std_10"] = grouped["amt"].rolling(window=10, min_periods=1).std().reset_index(level=0, drop=True).fillna(0)
-    df["amt_max_10"] = grouped["amt"].rolling(window=10, min_periods=1).max().reset_index(level=0, drop=True)
-    df["amt_min_10"] = grouped["amt"].rolling(window=10, min_periods=1).min().reset_index(level=0, drop=True)
-
-    # Clean up helper columns and NaNs.
-    for col in ["txns_last_10min", "txns_last_1h", "txns_last_24h"]:
-        df[col] = df[col].fillna(0).clip(lower=0)
-    df.drop(columns=["prev_lat", "prev_long"], inplace=True)
-    df.fillna(0, inplace=True)
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
     return df
 
 
 def prepare_training_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Produce the ordered feature matrix consumed by the trained model for training."""
-    X = df.copy()
-    X = _fill_missing_columns(X, CATEGORICAL + NUMERIC_BASE + ["trans_date_trans_time", "dob", "cc_num"])
-    X = _ensure_numeric(X, NUMERIC_BASE)
-    X = _compute_time_distance_features(X)
-    X = _compute_velocity_features(X)
+    """
+    Build the simple feature matrix expected by the new model.
 
-    # Guarantee every expected column exists and is numeric where appropriate.
-    X = _fill_missing_columns(X, FEATURE_COLUMNS)
-    X = _ensure_numeric(X, NUMERIC_FEATURES)
+    Accepts either the synthetic_simple_v2 columns or the richer transaction
+    shape coming from the backend/front-end and computes the derived fields.
+    """
+    X = df.copy()
+
+    if "amount" not in X and "amt" in X:
+        X["amount"] = X["amt"]
+
+    if "distance_km" not in X:
+        if "distance_from_home" in X:
+            X["distance_km"] = pd.to_numeric(X["distance_from_home"], errors="coerce")
+        else:
+            def _row_distance(row):
+                home_lat = row.get("home_lat", row.get("lat"))
+                home_long = row.get("home_long", row.get("long"))
+                return _distance_from_fields(home_lat, home_long, row.get("merch_lat"), row.get("merch_long"))
+
+            X["distance_km"] = X.apply(_row_distance, axis=1)
+
+    if "merchant_risk" not in X:
+        if "is_known_merchant" in X:
+            known = pd.to_numeric(X["is_known_merchant"], errors="coerce").fillna(0)
+            X["merchant_risk"] = (1 - known).clip(lower=0, upper=1)
+        else:
+            merchants = X.get("merchant", pd.Series("", index=X.index))
+            X["merchant_risk"] = merchants.apply(compute_merchant_risk)
+
+    if "is_night" not in X:
+        timestamps = X.get("trans_date_trans_time", X.get("timestamp"))
+        X["is_night"] = timestamps.apply(_is_night) if timestamps is not None else 0
+
+    if "hour" not in X:
+        if "hour" in df:
+            X["hour"] = pd.to_numeric(df["hour"], errors="coerce").fillna(0)
+        else:
+            timestamps = X.get("trans_date_trans_time", X.get("timestamp"))
+            X["hour"] = timestamps.apply(lambda t: _parse_timestamp(t).hour if _parse_timestamp(t) else 0) if timestamps is not None else 0
+
+    X = _ensure_columns(X)
     return X[FEATURE_COLUMNS]
 
 
 def prepare_inference_features(transaction: Dict, history: List[Dict] | None = None) -> pd.DataFrame:
-    """Build a single-row DataFrame with the same columns used during training."""
-    history = history or []
+    """
+    Build a single-row DataFrame with the simplified features.
+    History is ignored for the new model but accepted for compatibility.
+    """
+    del history  # not used for the simplified feature set
+    txn = transaction or {}
 
-    def _parse_ts(val):
-        try:
-            return pd.to_datetime(val)
-        except Exception:
-            return pd.NaT
+    amount = _coerce_numeric(txn.get("amount", txn.get("amt")))
 
-    txn_time = _parse_ts(transaction.get("trans_date_trans_time"))
-    dob = _parse_ts(transaction.get("dob"))
-    age = ((txn_time - dob).days / 365.25) if (txn_time is not pd.NaT and dob is not pd.NaT) else 0.0
-    hour = txn_time.hour if txn_time is not pd.NaT else 0
-    dow = txn_time.dayofweek if txn_time is not pd.NaT else 0
-    is_weekend = 1.0 if dow >= 5 else 0.0
+    distance_km = txn.get("distance_km")
+    if distance_km is None and "distance_from_home" in txn:
+        distance_km = txn.get("distance_from_home")
+    if distance_km is None:
+        home_lat = txn.get("home_lat", txn.get("lat"))
+        home_long = txn.get("home_long", txn.get("long"))
+        distance_km = _distance_from_fields(home_lat, home_long, txn.get("merch_lat"), txn.get("merch_long"))
 
-    base_distance = haversine(
-        transaction.get("lat"),
-        transaction.get("long"),
-        transaction.get("merch_lat"),
-        transaction.get("merch_long"),
-    )
+    merchant_risk = txn.get("merchant_risk")
+    if merchant_risk is None:
+        if "is_known_merchant" in txn:
+            try:
+                merchant_risk = 1 - float(txn.get("is_known_merchant"))
+            except Exception:
+                merchant_risk = compute_merchant_risk(txn.get("merchant", ""))
+        else:
+            merchant_risk = compute_merchant_risk(txn.get("merchant", ""))
 
-    # Build velocity features from provided history (assumed newest first).
-    hist_df = pd.DataFrame(history)
-    amt_avg_10 = amt_std_10 = amt_max_10 = amt_min_10 = 0.0
-    time_since_last_txn = txns_last_10min = txns_last_1h = txns_last_24h = 0.0
-    distance_last_txn_km = speed_kmph = impossible_travel_flag = 0.0
+    is_night = txn.get("is_night")
+    if is_night is None:
+        is_night = _is_night(txn.get("trans_date_trans_time") or txn.get("timestamp"))
 
-    if not hist_df.empty:
-        hist_df["trans_date_trans_time"] = pd.to_datetime(hist_df["trans_date_trans_time"], errors="coerce")
-        hist_df = hist_df.dropna(subset=["trans_date_trans_time"])
-        hist_df = hist_df.sort_values("trans_date_trans_time", ascending=False)
-        recent = hist_df.head(10)
-        amounts = pd.to_numeric(recent.get("amt", pd.Series(dtype=float)), errors="coerce")
-        if not amounts.empty:
-            amt_avg_10 = amounts.mean()
-            amt_std_10 = amounts.std(ddof=0)
-            amt_max_10 = amounts.max()
-            amt_min_10 = amounts.min()
+    hour = txn.get("hour")
+    if hour is None:
+        ts = _parse_timestamp(txn.get("trans_date_trans_time") or txn.get("timestamp"))
+        hour = ts.hour if ts is not None else 0
 
-        if txn_time is not pd.NaT:
-            deltas = (txn_time - recent["trans_date_trans_time"]).dt.total_seconds()
-            time_since_last_txn = float(deltas.min()) if not deltas.empty else 0.0
-            txns_last_10min = float((deltas <= 600).sum())
-            txns_last_1h = float((deltas <= 3600).sum())
-            txns_last_24h = float((deltas <= 86400).sum())
-
-            last_row = recent.iloc[0]
-            distance_last_txn_km = haversine(
-                transaction.get("lat"),
-                transaction.get("long"),
-                last_row.get("lat"),
-                last_row.get("long"),
-            )
-            if time_since_last_txn > 0:
-                speed_kmph = distance_last_txn_km / (time_since_last_txn / 3600.0)
-            impossible_travel_flag = 1.0 if speed_kmph > 900 else 0.0
-
-    features = {
-        "merchant": transaction.get("merchant", ""),
-        "category": transaction.get("category", ""),
-        "gender": transaction.get("gender", ""),
-        "state": transaction.get("state", ""),
-        "job": transaction.get("job", ""),
-        "amt": transaction.get("amt", 0.0),
-        "lat": transaction.get("lat", 0.0),
-        "long": transaction.get("long", 0.0),
-        "city_pop": transaction.get("city_pop", 0.0),
-        "merch_lat": transaction.get("merch_lat", 0.0),
-        "merch_long": transaction.get("merch_long", 0.0),
-        "distance_customer_merchant": base_distance,
-        "age": age,
-        "hour": float(hour),
-        "dow": float(dow),
-        "is_weekend": float(is_weekend),
-        "amt_avg_10": amt_avg_10,
-        "amt_std_10": amt_std_10,
-        "amt_max_10": amt_max_10,
-        "amt_min_10": amt_min_10,
-        "time_since_last_txn": time_since_last_txn,
-        "txns_last_10min": txns_last_10min,
-        "txns_last_1h": txns_last_1h,
-        "txns_last_24h": txns_last_24h,
-        "distance_last_txn_km": distance_last_txn_km,
-        "speed_kmph": speed_kmph,
-        "impossible_travel_flag": impossible_travel_flag,
+    data = {
+        "amount": amount,
+        "distance_km": distance_km,
+        "merchant_risk": merchant_risk,
+        "is_night": is_night,
+        "hour": hour,
+        "category": txn.get("category", ""),
     }
 
-    X = pd.DataFrame([features])
-    X = _fill_missing_columns(X, FEATURE_COLUMNS)
-    X = _ensure_numeric(X, NUMERIC_FEATURES)
+    X = pd.DataFrame([data])
+    X = _ensure_columns(X)
     return X[FEATURE_COLUMNS]

@@ -1,7 +1,6 @@
-"""SageMaker-compatible inference entry points for the fraud detection model."""
+"""SageMaker-compatible inference entry points for the simplified fraud model."""
 
-from __future__ import annotations
-
+from pathlib import Path
 import json
 from typing import Any, Dict, List
 
@@ -13,7 +12,10 @@ from common import FEATURE_COLUMNS, prepare_inference_features
 
 def model_fn(model_dir):
     """Load model from SageMaker directory."""
-    return joblib.load(f"{model_dir}/model.joblib")
+    path = Path(model_dir) / "model.joblib"
+    if not path.exists():
+        raise FileNotFoundError(f"Expected model.joblib in {model_dir}")
+    return joblib.load(path)
 
 
 def _build_frame_from_payload(payload: Dict[str, Any]) -> pd.DataFrame:
@@ -22,7 +24,10 @@ def _build_frame_from_payload(payload: Dict[str, Any]) -> pd.DataFrame:
         history = payload.get("history", []) or []
     else:
         txn = payload
-        history = payload.get("history", []) if isinstance(payload.get("history"), list) else []
+        if isinstance(payload, dict):
+            history = payload.get("history", []) if isinstance(payload.get("history"), list) else []
+        else:
+            history = []
     return prepare_inference_features(txn, history)
 
 

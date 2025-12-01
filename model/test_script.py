@@ -21,27 +21,15 @@ def main() -> None:
     runtime = boto3.client("sagemaker-runtime", region_name=resolve_region())
 
     sample = {
-        "trans_date_trans_time": "2020-06-21 22:37:27",
-        "cc_num": "6564459919350820",
-        "merchant": "fraud_Nienow PLC",
-        "category": "entertainment",
-        "amt": 620.33,
-        "first": "Douglas",
-        "last": "Willis",
-        "gender": "M",
-        "street": "619 Jeremy Garden Apt. 681",
-        "city": "Benton",
-        "state": "WI",
-        "zip": 53803,
-        "lat": 42.5545,
-        "long": -90.3508,
-        "city_pop": 1306,
-        "job": "Public relations officer",
-        "dob": "1958-09-10",
-        "trans_num": "47a9987ae81d99f7832a54b29a77bf4b",
-        "unix_time": 1371854247,
-        "merch_lat": 42.771834000000005,
-        "merch_long": -90.158365
+        "amount": 420.75,
+        "merchant": "fraud_LosAlamos",
+        "category": "electronics",
+        "state": "CA",
+        "lat": 37.7749,
+        "long": -122.4194,
+        "merch_lat": 34.0522,
+        "merch_long": -118.2437,
+        "trans_date_trans_time": "2024-03-15 23:45:10",
     }
 
     endpoint_name = resolve_endpoint_name()
