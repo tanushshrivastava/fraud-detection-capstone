@@ -5,10 +5,11 @@ XGBoost (XGBClassifier) pipeline, and packages the resulting artifacts for deplo
 """
 
 import json
+import os
 import tarfile
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import joblib
 import pandas as pd
@@ -42,6 +43,25 @@ def load_dataframe(csv_path: Path) -> pd.DataFrame:
     return pd.read_csv(csv_path)
 
 
+def load_and_combine_datasets(csv_paths: List[Path]) -> pd.DataFrame:
+    """Load and combine multiple CSV datasets."""
+    dfs = []
+    for csv_path in csv_paths:
+        if not csv_path.exists():
+            print(f"Warning: {csv_path} not found, skipping...")
+            continue
+        print(f"Loading {csv_path}...")
+        df = pd.read_csv(csv_path)
+        dfs.append(df)
+    
+    if not dfs:
+        raise FileNotFoundError("No valid datasets found!")
+    
+    combined = pd.concat(dfs, ignore_index=True)
+    print(f"Combined dataset size: {len(combined):,} rows")
+    return combined
+
+
 def build_pipeline(
     numeric_features: List[str],
     categorical_features: List[str],
@@ -49,6 +69,7 @@ def build_pipeline(
     scale_pos_weight: float = 1.0,
     use_early_stopping: bool = True,
     max_estimators: int = 1000,
+    quick_mode: bool = False,
 ) -> Pipeline:
     """Create a preprocessing + classifier pipeline used for both training/inference.
     
@@ -70,28 +91,30 @@ def build_pipeline(
         ]
     )
 
+    # Adjust parameters for quick mode
     xgb_params = {
-        "max_depth": 6,  # Slightly deeper for more complex patterns
-        "learning_rate": 0.03,  # Lower learning rate for better convergence
-        "subsample": 0.85,  # Slightly more data per tree
-        "colsample_bytree": 0.85,  # More features per tree
-        "reg_lambda": 1.5,  # L2 regularization
-        "reg_alpha": 0.2,  # L1 regularization
-        "min_child_weight": 5,  # Higher to prevent overfitting on small groups
-        "gamma": 0.2,  # Minimum loss reduction for split
+        "max_depth": 5 if quick_mode else 7,  # Shallower in quick mode for speed
+        "learning_rate": 0.08 if quick_mode else 0.02,  # Higher learning rate in quick mode for faster convergence
+        "subsample": 0.8 if quick_mode else 0.9,  # Less data per tree in quick mode
+        "colsample_bytree": 0.8 if quick_mode else 0.9,  # Less features per tree in quick mode
+        "colsample_bylevel": 0.9,  # Use more features at each level
+        "reg_lambda": 1.0 if quick_mode else 2.0,  # Less regularization in quick mode
+        "reg_alpha": 0.1 if quick_mode else 0.3,  # Less regularization in quick mode
+        "min_child_weight": 3 if quick_mode else 6,  # Lower in quick mode
+        "gamma": 0.1 if quick_mode else 0.3,  # Lower minimum loss reduction in quick mode
         "random_state": 42,
         "n_jobs": -1,
         "tree_method": "hist",
-        "eval_metric": "aucpr",  # Use PR AUC for imbalanced data
+        "eval_metric": ["aucpr", "auc"],  # Monitor both PR AUC and ROC AUC
         "scale_pos_weight": scale_pos_weight,
         "use_label_encoder": False,
         "objective": "binary:logistic",
     }
     
     if use_early_stopping:
+        # early_stopping_rounds will be set by caller
         xgb_params.update({
             "n_estimators": max_estimators,
-            "early_stopping_rounds": 40,  # Stop if no improvement for 40 rounds
         })
     else:
         xgb_params["n_estimators"] = 500
@@ -180,10 +203,42 @@ def save_model_artifacts(model: Pipeline, stack_name: str, metrics: dict) -> Pat
 
 
 def main() -> None:
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Train fraud detection model")
+    parser.add_argument(
+        "--train-csv",
+        nargs="+",
+        default=["fraudTrain.csv"],
+        help="Training CSV file(s) to use (can specify multiple, e.g., --train-csv fraudTrain.csv fraudTrain_new.csv)",
+    )
+    parser.add_argument(
+        "--test-csv",
+        nargs="+",
+        default=["fraudTest.csv"],
+        help="Test CSV file(s) to use (can specify multiple)",
+    )
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="Use fast training mode (fewer estimators, less patience) for quicker iteration",
+    )
+    parser.add_argument(
+        "--quick",
+        action="store_true",
+        help="Use quick mode to see results in ~5 minutes (fewer estimators, shorter patience, verbose progress)",
+    )
+    args = parser.parse_args()
+    
     model_dir = Path(__file__).resolve().parent
-    csv_path = model_dir / "fraudTrain.csv"
-    # Load the raw labelled transactions into a DataFrame.
-    df = load_dataframe(csv_path)
+    
+    # Load and combine training datasets if multiple specified
+    if len(args.train_csv) > 1:
+        train_paths = [model_dir / path for path in args.train_csv]
+        df = load_and_combine_datasets(train_paths)
+    else:
+        csv_path = model_dir / args.train_csv[0]
+        df = load_dataframe(csv_path)
 
     # Recreate time-based and demographic features relied on by the model.
     df["trans_date_trans_time"] = pd.to_datetime(df["trans_date_trans_time"])
@@ -195,32 +250,49 @@ def main() -> None:
 
     # Additional stateless features to better capture suspicious patterns
     # 1) Log-transformed amount to highlight extreme spent values
-    df["log_amt"] = (df["amt"].clip(lower=1e-6)).apply(lambda x: float(__import__("math").log(x)))
-    # 2) Very high amount flag (million-dollar+)
+    df["log_amt"] = np.log(np.clip(df["amt"].values, 1e-6, None))
+    # 2) Very high amount flags
     df["is_high_amount"] = (df["amt"] >= 1_000_000).astype(int)
-    # 3) Cyclical encoding for hour of day
-    import numpy as _np
-    df["hour_sin"] = _np.sin(2 * _np.pi * df["hour"] / 24.0)
-    df["hour_cos"] = _np.cos(2 * _np.pi * df["hour"] / 24.0)
-    # 4) Night flag (e.g., 0-6)
+    df["is_very_high_amount"] = (df["amt"] >= 10_000).astype(int)
+    # 3) Amount normalized by city population
+    df["amt_per_city_pop"] = df["amt"] / (df["city_pop"] + 1)
+    # 4) Time features
+    df["month"] = df["trans_date_trans_time"].dt.month
+    df["day"] = df["trans_date_trans_time"].dt.day
+    # 5) Cyclical encoding for time features
+    df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24.0)
+    df["hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24.0)
+    df["dow_sin"] = np.sin(2 * np.pi * df["dow"] / 7.0)
+    df["dow_cos"] = np.cos(2 * np.pi * df["dow"] / 7.0)
+    df["month_sin"] = np.sin(2 * np.pi * df["month"] / 12.0)
+    df["month_cos"] = np.cos(2 * np.pi * df["month"] / 12.0)
+    # 6) Time flags
     df["is_night"] = df["hour"].isin([0,1,2,3,4,5,6]).astype(int)
-    # 5) Haversine distance between user and merchant
-    def _haversine_km(lat1, lon1, lat2, lon2):
-        import math
-        if _np.isnan(lat1) or _np.isnan(lon1) or _np.isnan(lat2) or _np.isnan(lon2):
-            return 0.0
-        R = 6371.0
-        phi1 = math.radians(lat1)
-        phi2 = math.radians(lat2)
-        dphi = math.radians(lat2 - lat1)
-        dlambda = math.radians(lon2 - lon1)
-        a = math.sin(dphi/2)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda/2)**2
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-        return float(R * c)
-    df["distance_km"] = [
-        _haversine_km(la, lo, mla, mlo)
-        for la, lo, mla, mlo in zip(df["lat"], df["long"], df["merch_lat"], df["merch_long"])
-    ]
+    df["is_weekend"] = df["dow"].isin([5, 6]).astype(int)
+    df["is_business_hours"] = df["hour"].between(9, 17).astype(int)
+    # 7) Haversine distance between user and merchant (vectorized for speed)
+    lat = df["lat"].fillna(0).values
+    lon = df["long"].fillna(0).values
+    mlat = df["merch_lat"].fillna(0).values
+    mlon = df["merch_long"].fillna(0).values
+    
+    # Vectorized haversine calculation (much faster than loop)
+    R = 6371.0
+    lat1_rad = np.radians(lat)
+    lat2_rad = np.radians(mlat)
+    dlat_rad = np.radians(mlat - lat)
+    dlon_rad = np.radians(mlon - lon)
+    
+    a = (np.sin(dlat_rad/2)**2 + 
+         np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon_rad/2)**2)
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+    df["distance_km"] = R * c
+    # 8) Geographic flags
+    df["is_distant"] = (df["distance_km"] > 100).astype(int)
+    df["is_very_distant"] = (df["distance_km"] > 500).astype(int)
+    # 9) Interaction features
+    df["high_amt_distant"] = (df["is_high_amount"] * df["is_distant"]).astype(int)
+    df["night_high_amt"] = (df["is_night"] * df["is_very_high_amount"]).astype(int)
 
     target = "is_fraud"
     y = df[target]
@@ -228,20 +300,92 @@ def main() -> None:
     X = df.drop(columns=[target, "trans_num"])
 
     # Time-based split to avoid temporal leakage
-    # Split into train (70%), validation (10%), test (20%)
-    train_cutoff = df["trans_date_trans_time"].quantile(0.7)
-    val_cutoff = df["trans_date_trans_time"].quantile(0.8)
+    # Split into train (80%), validation (10%), test (10%)
+    # If test CSV is provided separately, use it; otherwise split from training data
+    if len(args.test_csv) > 0 and (len(args.test_csv) > 1 or args.test_csv[0] != "fraudTest.csv" or (model_dir / args.test_csv[0]).exists()):
+        # Use separate test dataset(s)
+        if len(args.test_csv) > 1:
+            test_paths = [model_dir / path for path in args.test_csv]
+            df_test = load_and_combine_datasets(test_paths)
+        else:
+            test_path = model_dir / args.test_csv[0]
+            if test_path.exists():
+                df_test = load_dataframe(test_path)
+            else:
+                df_test = None
+    else:
+        df_test = None
     
-    train_mask = df["trans_date_trans_time"] <= train_cutoff
-    val_mask = (df["trans_date_trans_time"] > train_cutoff) & (df["trans_date_trans_time"] <= val_cutoff)
-    test_mask = df["trans_date_trans_time"] > val_cutoff
+    if df_test is not None:
+        # Apply same feature engineering to test set
+        df_test["trans_date_trans_time"] = pd.to_datetime(df_test["trans_date_trans_time"])
+        df_test["dob"] = pd.to_datetime(df_test["dob"])
+        df_test["hour"] = df_test["trans_date_trans_time"].dt.hour
+        df_test["dow"] = df_test["trans_date_trans_time"].dt.dayofweek
+        df_test["age"] = ((df_test["trans_date_trans_time"] - df_test["dob"]).dt.days / 365.25).clip(lower=0)
+        df_test["log_amt"] = np.log(np.clip(df_test["amt"].values, 1e-6, None))
+        df_test["is_high_amount"] = (df_test["amt"] >= 1_000_000).astype(int)
+        df_test["is_very_high_amount"] = (df_test["amt"] >= 10_000).astype(int)
+        df_test["amt_per_city_pop"] = df_test["amt"] / (df_test["city_pop"] + 1)
+        df_test["month"] = df_test["trans_date_trans_time"].dt.month
+        df_test["day"] = df_test["trans_date_trans_time"].dt.day
+        df_test["hour_sin"] = np.sin(2 * np.pi * df_test["hour"] / 24.0)
+        df_test["hour_cos"] = np.cos(2 * np.pi * df_test["hour"] / 24.0)
+        df_test["dow_sin"] = np.sin(2 * np.pi * df_test["dow"] / 7.0)
+        df_test["dow_cos"] = np.cos(2 * np.pi * df_test["dow"] / 7.0)
+        df_test["month_sin"] = np.sin(2 * np.pi * df_test["month"] / 12.0)
+        df_test["month_cos"] = np.cos(2 * np.pi * df_test["month"] / 12.0)
+        df_test["is_night"] = df_test["hour"].isin([0,1,2,3,4,5,6]).astype(int)
+        df_test["is_weekend"] = df_test["dow"].isin([5, 6]).astype(int)
+        df_test["is_business_hours"] = df_test["hour"].between(9, 17).astype(int)
+        # Vectorized haversine calculation for test set
+        lat_test = df_test["lat"].fillna(0).values
+        lon_test = df_test["long"].fillna(0).values
+        mlat_test = df_test["merch_lat"].fillna(0).values
+        mlon_test = df_test["merch_long"].fillna(0).values
+        
+        R = 6371.0
+        lat1_rad = np.radians(lat_test)
+        lat2_rad = np.radians(mlat_test)
+        dlat_rad = np.radians(mlat_test - lat_test)
+        dlon_rad = np.radians(mlon_test - lon_test)
+        
+        a = (np.sin(dlat_rad/2)**2 + 
+             np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon_rad/2)**2)
+        c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+        df_test["distance_km"] = R * c
+        df_test["is_distant"] = (df_test["distance_km"] > 100).astype(int)
+        df_test["is_very_distant"] = (df_test["distance_km"] > 500).astype(int)
+        df_test["high_amt_distant"] = (df_test["is_high_amount"] * df_test["is_distant"]).astype(int)
+        df_test["night_high_amt"] = (df_test["is_night"] * df_test["is_very_high_amount"]).astype(int)
+        
+        y_test = df_test[target]
+        X_test = df_test.drop(columns=[target, "trans_num"])
+        
+        # Split training data into train (80%) and validation (20%)
+        train_cutoff = df["trans_date_trans_time"].quantile(0.8)
+        train_mask = df["trans_date_trans_time"] <= train_cutoff
+        val_mask = df["trans_date_trans_time"] > train_cutoff
+        
+        X_train = X.loc[train_mask]
+        X_val = X.loc[val_mask]
+        y_train = y.loc[train_mask]
+        y_val = y.loc[val_mask]
+    else:
+        # Split into train (70%), validation (10%), test (20%)
+        train_cutoff = df["trans_date_trans_time"].quantile(0.7)
+        val_cutoff = df["trans_date_trans_time"].quantile(0.8)
+        
+        train_mask = df["trans_date_trans_time"] <= train_cutoff
+        val_mask = (df["trans_date_trans_time"] > train_cutoff) & (df["trans_date_trans_time"] <= val_cutoff)
+        test_mask = df["trans_date_trans_time"] > val_cutoff
 
-    X_train = X.loc[train_mask]
-    X_val = X.loc[val_mask]
-    X_test = X.loc[test_mask]
-    y_train = y.loc[train_mask]
-    y_val = y.loc[val_mask]
-    y_test = y.loc[test_mask]
+        X_train = X.loc[train_mask]
+        X_val = X.loc[val_mask]
+        X_test = X.loc[test_mask]
+        y_train = y.loc[train_mask]
+        y_val = y.loc[val_mask]
+        y_test = y.loc[test_mask]
     
     print(f"Data split: Train={len(y_train)}, Validation={len(y_val)}, Test={len(y_test)}")
     print(f"Train fraud rate: {y_train.mean():.4f}, Val fraud rate: {y_val.mean():.4f}, Test fraud rate: {y_test.mean():.4f}")
@@ -250,6 +394,8 @@ def main() -> None:
         "amt",
         "log_amt",
         "is_high_amount",
+        "is_very_high_amount",
+        "amt_per_city_pop",
         "lat",
         "long",
         "city_pop",
@@ -259,9 +405,21 @@ def main() -> None:
         "hour",
         "hour_sin",
         "hour_cos",
-        "is_night",
-        "age",
         "dow",
+        "dow_sin",
+        "dow_cos",
+        "month",
+        "month_sin",
+        "month_cos",
+        "day",
+        "is_night",
+        "is_weekend",
+        "is_business_hours",
+        "is_distant",
+        "is_very_distant",
+        "high_amt_distant",
+        "night_high_amt",
+        "age",
     ]
     categorical_features = ["merchant", "category", "gender", "state", "job"]
 
@@ -270,41 +428,64 @@ def main() -> None:
     neg = float(len(y_train) - y_train.sum())
     scale_pos_weight = (neg / pos) if pos > 0 else 1.0
 
-    # Check for fast training mode (for development/testing)
-    fast_mode = os.environ.get("FAST_TRAIN", "false").lower() == "true"
+    # Check for training mode (for development/testing)
+    quick_mode = args.quick
+    fast_mode = args.fast or (os.environ.get("FAST_TRAIN", "false").lower() == "true")
     
-    if fast_mode:
+    if quick_mode:
+        print("⚡ QUICK MODE ENABLED: Training optimized to show results in ~5 minutes")
+        max_estimators = 150  # Fewer estimators for quick results
+        early_stopping_rounds = 10  # Shorter patience
+        verbose_level = 5  # More frequent updates
+    elif fast_mode:
         print("⚠️  FAST MODE ENABLED: Using reduced model complexity for faster training")
         max_estimators = 300
         early_stopping_rounds = 20
+        verbose_level = 10
     else:
-        max_estimators = 500  # More estimators for better learning
-        early_stopping_rounds = 40  # More patience for early stopping
+        max_estimators = 600  # More estimators for better learning
+        early_stopping_rounds = 50  # More patience for early stopping
+        verbose_level = 10
+        print(f"Training with {max_estimators} max estimators and early stopping patience of {early_stopping_rounds} rounds...")
     
     pipeline = build_pipeline(
         numeric_features, 
         categorical_features, 
         scale_pos_weight=scale_pos_weight,
         use_early_stopping=True,
-        max_estimators=max_estimators
+        max_estimators=max_estimators,
+        quick_mode=quick_mode
     )
 
+    # Set early stopping rounds on the classifier
+    classifier = pipeline.named_steps["classifier"]
+    classifier.set_params(early_stopping_rounds=early_stopping_rounds)
+    
     # Preprocess data for early stopping
     # We need to fit preprocessor first, then train classifier with eval_set
     preprocessor = pipeline.named_steps["preprocessor"]
     X_train_preprocessed = preprocessor.fit_transform(X_train)
     X_val_preprocessed = preprocessor.transform(X_val)
+    print("\nTraining XGBoost with early stopping...")
+    print(f"Training set: {len(y_train):,} samples ({y_train.sum():,} fraud cases)")
+    print(f"Validation set: {len(y_val):,} samples ({y_val.sum():,} fraud cases)")
+    if quick_mode:
+        print("⚡ Quick mode: Expect results in ~3-5 minutes\n")
+    elif fast_mode:
+        print("Fast mode: Expect results in ~10-15 minutes\n")
+    else:
+        print("Full training mode: This may take 20-30 minutes...\n")
     
-    # Fit XGBoost with early stopping on validation set
-    classifier = pipeline.named_steps["classifier"]
-    print("Training XGBoost with early stopping...")
+    import time
+    start_time = time.time()
     classifier.fit(
         X_train_preprocessed, 
         y_train,
         eval_set=[(X_train_preprocessed, y_train), (X_val_preprocessed, y_val)],
-        eval_metric=["aucpr", "auc"],  # Monitor both PR AUC and ROC AUC
-        verbose=10  # Print progress every 10 rounds for better feedback
+        verbose=verbose_level  # Print progress more frequently in quick mode
     )
+    training_time = time.time() - start_time
+    print(f"\n✓ Training completed in {training_time:.1f} seconds ({training_time/60:.1f} minutes)")
     
     # XGBoost with early stopping automatically uses best iteration
     best_iteration = classifier.get_booster().best_iteration
@@ -418,19 +599,24 @@ def main() -> None:
         "model": "XGBClassifier",
         "model_params": {
             "n_estimators": actual_n_estimators,
-            "max_depth": 5,  # Updated
-            "learning_rate": 0.05,  # Updated
-            "subsample": 0.8,
-            "colsample_bytree": 0.8,
-            "reg_lambda": 2.0,  # Updated
-            "reg_alpha": 0.1,  # Added
-            "min_child_weight": 3,  # Added
-            "gamma": 0.1,  # Added
+            "max_depth": 7,
+            "learning_rate": 0.02,
+            "subsample": 0.9,
+            "colsample_bytree": 0.9,
+            "colsample_bylevel": 0.9,
+            "reg_lambda": 2.0,
+            "reg_alpha": 0.3,
+            "min_child_weight": 6,
+            "gamma": 0.3,
             "random_state": 42,
             "tree_method": "hist",
-            "eval_metric": "logloss",
+            "eval_metric": "aucpr",
             "scale_pos_weight": float(scale_pos_weight),
             "early_stopping_rounds": 50,
+        },
+        "datasets_used": {
+            "train": args.train_csv,
+            "test": args.test_csv,
         },
         "comparison": {
             "random_forest": {
@@ -471,4 +657,11 @@ def main() -> None:
 
 # Allow the script to be executed directly from the command line.
 if __name__ == "__main__":
-    main()
+    import sys
+    try:
+        main()
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
