@@ -19,7 +19,8 @@ export default () => ({
     package: "com.fraud.dashboard"
   },
   web: {
-    bundler: "metro"
+    bundler: "metro",
+    favicon: "./assets/favico.png"
   },
   extra: {
     apiUrl: process.env.REACT_APP_API_URL,

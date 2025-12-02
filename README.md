@@ -2,6 +2,40 @@
 
 Fraud Detection Capstone is an end-to-end project that trains a machine learning model to flag suspicious credit-card transactions and serves the predictions through a web application and an AWS Lambda backend. This repository contains everything from data preparation and model training to infrastructure-as-code for deploying the service.
 
+## Quick Links
+- Web/AWS Repo: https://github.com/tanushshrivastava/fraud-detection-capstone
+- App repo: https://github.com/tanushshrivastava/CapstoneApp
+- AWS Cloudfront UI: https://d1wp7m8kmwd8bi.cloudfront.net/
+- Primary stack suffix used: `newmodels` (adjust via `STACK_SUFFIX` in `.env`)
+- Final Slides Link: https://docs.google.com/presentation/d/1ODADsAXCPiMcSjWkFerHHeNehGzHdpKmK8EWQzcI6Uc/edit?usp=sharing
+
+
+## What Works
+- End-to-end flow: frontend → API Gateway/Lambda → SageMaker endpoint → JSON fraud probability.
+- Simplified LightGBM-free model running on the sklearn 1.2 container with custom inference code.
+- Synthetic data generation (`generatecsv.py`) and training (`train_new.py`) with held-out metrics.
+- CLI/console deploys with `SAGEMAKER_PROGRAM=inference.py` and a flat `model.tar.gz` (joblib + inference + common).
+- Optional enrichments: Twilio SMS alerts, Google Maps geocoding, and ZIP-based city population when keys are present.
+
+## What Doesn’t (or Caveats)
+- IOS app, only for Android
+
+## Next Steps
+- Improve synthetic labeling (tighter fraud thresholds, richer patterns) to lift AUC.
+- Reintroduce a richer feature pipeline (e.g., the original `train.py` + fraudTrain.csv) for higher accuracy.
+- Hyperparameter tuning for the current `HistGradientBoostingClassifier`.
+- Add automated endpoint smoke tests and CI checks for tar layout and env vars.
+- iOS app
+
+## Fast Setup
+1) Clone and create a Python 3.9 venv under `model/`; install `numpy==1.23.5 pandas==1.5.3 scikit-learn==1.2.1 joblib==1.2.0`.
+2) Generate synthetic data (if you aren’t using fraudTrain.csv): `python model/generatecsv.py`.
+3) Train: `python model/train_new.py` → writes `model/model.joblib`.
+4) Bundle for SageMaker: `tar -czf model/model.tar.gz -C model model.joblib inference.py common.py`.
+5) Upload the tar to S3 (default key: `s3://trained-data-<account>-<region>/user-<stack>/model.tar.gz`).
+6) Deploy: `cd cdk && cdk deploy --all` (or use the CLI to create model/endpoint; ensure `SAGEMAKER_PROGRAM=inference.py` and image `sagemaker-scikit-learn:1.2-1-cpu-py3`).
+7) Frontend: `cd frontend && npm install && npm start` (set API env vars in `frontend/.env`).
+
 ## Repository Layout
 - `model/` – Python training, inference, and utility scripts plus stack-scoped artifacts under `artifacts/<stack-name>/`.
 - `backend/` – Java 17 AWS Lambda project packaged with Gradle (`buildLambda` task produces `fraud-backend.jar`).
@@ -21,6 +55,9 @@ Fraud Detection Capstone is an end-to-end project that trains a machine learning
 2. Accept the terms and download `fraudTrain.csv`.
 3. Place the file at the repository root or inside `model/` before running any training scripts. The default path expected by `model/train.py` is the current working directory, so running the script from `model/` with the CSV in that folder works out of the box.
 
+
+4. can also use generatecsv.py (more accurate)
+
 ## Model Workflow (`model/`)
 ```bash
 cd model
@@ -35,17 +72,22 @@ python train.py                      # Reads fraudTrain.csv and writes artifacts
 
 After training, stack-aware assets land in `model/artifacts/<stack-name>/` (`model.joblib`, `metadata.json`, and `model.tar.gz` that bundles inference code). `model/test_script.py` automatically resolves the matching SageMaker endpoint name based on your `.env` configuration, so you can sanity-check local predictions against the deployed endpoint later.
 
+### Current Model (simplified features)
+- Features: `amount`, `distance_km`/`distance_from_home`, `merchant_risk`/`is_known_merchant`, `is_night`, `hour`, `category`.
+- Inference accepts either `{ "transaction": { ... } }` or a flat transaction dict; extra fields are ignored.
+- `common.py` derives missing fields (distance from lat/long, risk from merchant name) and maps `amt` → `amount`.
+
 ## Backend Lambda (`backend/`)
 ```bash
 cd backend
-gradle buildLambda                   # Produces build/libs/fraud-backend.jar
+gradle build            # Produces build/libs/fraud-backend.jar
 ```
 
 ## Frontend (`frontend/`)
 ```bash
 cd frontend
 npm install
-npm start                            # Runs the React dev server on http://localhost:3000
+npm run export          # Runs the React dev server on http://localhost:5173
 ```
 Set any required environment variables (e.g., API base URLs) in `.env` files following Create React App conventions.
 
@@ -75,13 +117,20 @@ The backend infrastructure now assumes you keep model artifacts in a shared S3 b
 Update the repository root `.env` with values that match your AWS profile:
 
 ```dotenv
-AWS_ACCOUNT_ID=123456789012
+AWS_ACCOUNT_ID= ##
 AWS_REGION=us-east-1
-STACK_SUFFIX=myname            # optional; used to create unique stack/resource names
-
-REACT_APP_API_ID=xxxxxxxxxx    # fill in after the first deploy, or leave blank until then
-REACT_APP_API_REGION=us-east-1
+STACK_SUFFIX=.   #unique identifier
+ALERT_FROM_EMAIL= # email to send notifs or transactions to # newcscapstone@gmail.com
+FROM_EMAIL=capitalonecapstone@gmail.com
+REACT_APP_API_ID=
+REACT_APP_API_REGION=us-east-1 
 REACT_APP_API_STAGE=prod
+REACT_APP_API_URL=https://###.execute-api.us-east-1.amazonaws.com/prod/
+GOOGLE_MAPS_API_KEY=
+CITY_POPULATION_KEY=
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_PHONE_NUMBER=
 ```
 
 - `STACK_SUFFIX` is automatically appended to every stack (`FraudEndpointStack-<suffix>`, etc.) and drives the `user-<stack>` prefix for model artifacts.
@@ -158,6 +207,18 @@ Buckets and artifacts are not deleted automatically when you destroy stacks, so 
 aws s3 rm s3://trained-data-${AWS_ACCOUNT_ID}-${AWS_REGION}/ \
   --recursive --exclude "*" --include "user-${STACK_NAME}/*"
 ```
+
+## External Integrations
+- **Twilio SMS alerts**  
+  - Sign up at https://www.twilio.com/ and create a Messaging-capable number.  
+  - Set env vars: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`.  
+  - The backend sends alerts when fraud scores exceed the account’s threshold; `/webhook/twilio` handles SMS replies.
+- **Google Maps Geocoding**  
+  - Get an API key: https://developers.google.com/maps/documentation/geocoding/get-api-key  
+  - Set `GOOGLE_MAPS_API_KEY`. If missing, geocoding is skipped.
+- **City population lookup (ZIP API)**  
+  - Uses `https://global.metadapi.com/zipc/v1/zipcodes/{zip}` with header `Ocp-Apim-Subscription-Key`.  
+  - Obtain a key from Metadapi and set `CITY_POPULATION_KEY`. If missing, population is skipped.
 
 ## Testing 
 ```
@@ -266,3 +327,18 @@ jobs:
 ```
 
 Fill in each secret defined in the deploy.yml file
+
+# 10 Mobile App.
+
+clone this: https://github.com/tanushshrivastava/CapstoneApp
+
+and use as the ui on your phone. set local.properties to 
+
+"""
+API_URL=https://####.execute-api.us-east-1.amazonaws.com/prod/
+GOOGLE_MAPS_KEY=
+google.maps.key=
+"""
+
+
+login to gmail with the email you set above in aws ses
