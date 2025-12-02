@@ -8,6 +8,7 @@ Fraud Detection Capstone is an end-to-end project that trains a machine learning
 - AWS Cloudfront UI: https://d1wp7m8kmwd8bi.cloudfront.net/
 - Primary stack suffix used: `newmodels` (adjust via `STACK_SUFFIX` in `.env`)
 - Final Slides Link: https://docs.google.com/presentation/d/1ODADsAXCPiMcSjWkFerHHeNehGzHdpKmK8EWQzcI6Uc/edit?usp=sharing
+- Figma Link: https://www.figma.com/site/r1Fa0Tc75iBHo7YFvFXmIs/Capstone?node-id=0-4&t=LX47194UleOlMuWp-1
 
 
 ## What Works
@@ -68,7 +69,7 @@ pip install numpy==1.26.4 pandas==2.2.2 scikit-learn==1.2.2 joblib==1.3.2
 python train.py                      # Reads fraudTrain.csv and writes artifacts/model.tar.gz for your stack
 ```
 
-> ℹ️ Run `pip show numpy` (and the others) if you want to verify the pinned versions before training.
+>  Run `pip show numpy` (and the others) if you want to verify the pinned versions before training.
 
 After training, stack-aware assets land in `model/artifacts/<stack-name>/` (`model.joblib`, `metadata.json`, and `model.tar.gz` that bundles inference code). `model/test_script.py` automatically resolves the matching SageMaker endpoint name based on your `.env` configuration, so you can sanity-check local predictions against the deployed endpoint later.
 
