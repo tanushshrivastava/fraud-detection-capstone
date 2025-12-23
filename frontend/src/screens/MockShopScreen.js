@@ -12,52 +12,25 @@ const getApiUrl = () => {
 };
 
 
-// Preset stores with realistic data
+// Preset stores with low/high risk examples
 const PRESET_STORES = [
   {
     id: 1,
-    name: "Nienow PLC",
-    emoji: "🎭",
-    category: "entertainment",
-    amount: 62000.32,
-    lat: 42.771834,
-    long: -90.158365
+    name: "Joe Coffee",
+    emoji: "☕",
+    category: "coffee",
+    amount: 8.97,
+    lat: 43.07076850000001,
+    long: -89.4026391
   },
   {
     id: 2,
-    name: "Amazon",
-    emoji: "📦",
-    category: "shopping",
-    amount: 149.99,
-    lat: 47.6062,
-    long: -122.3321
-  },
-  {
-    id: 3,
-    name: "Starbucks",
-    emoji: "☕",
-    category: "food_dining",
-    amount: 8.50,
-    lat: 43.0731,
-    long: -89.4012
-  },
-  {
-    id: 4,
-    name: "Shell Gas Station",
-    emoji: "⛽",
-    category: "gas_transport",
-    amount: 65.00,
-    lat: 43.0695,
-    long: -89.4124
-  },
-  {
-    id: 5,
-    name: "Target",
-    emoji: "🎯",
-    category: "grocery_pos",
-    amount: 234.56,
-    lat: 43.0747,
-    long: -89.3931
+    name: "Delta Airlines",
+    emoji: "✈️",
+    category: "travel",
+    amount: 100000000,
+    lat: 12,
+    long: 45
   }
 ];
 
@@ -138,24 +111,20 @@ const MockShopScreen = ({ account, onTransactionComplete }) => {
     setMessage(null);
 
     try {
-      const transactionData = {
-        amt: currentStore.amount,
-        merchant: currentStore.name,
-        category: currentStore.category,
-        merch_lat: currentStore.lat,
-        merch_long: currentStore.long
-      };
-
       const apiUrl = getApiUrl();
       if (!apiUrl) {
         throw new Error("API URL not configured");
       }
 
       // Send email via AWS SES Lambda
+      const lat = currentStore.lat ?? "unknown";
+      const long = currentStore.long ?? "unknown";
+      const formattedBody = `Transaction of amount $${currentStore.amount.toFixed(2)} at ${currentStore.name} of category ${currentStore.category} at location ${lat}, ${long} was made.`;
+
       await axios.post(`${apiUrl}/send-email`, {
         to: "newcscapstone@gmail.com",
         subject: `Card Swipe at ${currentStore.name}`,
-        body: JSON.stringify(transactionData, null, 2)
+        body: formattedBody
       });
       
       setMessage({
